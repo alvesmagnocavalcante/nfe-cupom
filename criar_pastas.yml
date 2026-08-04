@@ -1,22 +1,37 @@
-- name: Preparar PDV Windows
-  hosts: pdv_windows
+---
+- name: Criar e compartilhar pasta NFC-e
+  hosts: PDV
   gather_facts: false
 
   tasks:
-    - name: Criar pasta de NFC-e
+    - name: Criar pasta NFC-e
       ansible.windows.win_file:
         path: C:\PDV\NFCe
         state: directory
 
-    - name: Criar XML fictício
+    - name: Criar arquivo XML
       ansible.windows.win_copy:
-        content: '<nfce id="001"><total>10.00</total></nfce>'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <nfce>
+            <status>teste</status>
+          </nfce>
         dest: C:\PDV\NFCe\nfce-001.xml
 
-    - name: Compartilhar pasta de NFC-e
+    - name: Dar permissão NTFS para IEUser
+      ansible.windows.win_acl:
+        path: C:\PDV\NFCe
+        user: 'MSEDGEWIN10\IEUser'
+        rights: Modify
+        type: allow
+        state: present
+        inherit: ContainerInherit,ObjectInherit
+        propagation: None
+
+    - name: Compartilhar pasta NFC-e
       ansible.windows.win_share:
         name: NFCe
-        description: XMLs de NFC-e do PDV
+        description: Compartilhamento NFC-e
         path: C:\PDV\NFCe
-        read: nfce_lab
         state: present
+        full: 'MSEDGEWIN10\IEUser'
