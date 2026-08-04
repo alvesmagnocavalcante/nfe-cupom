@@ -1,0 +1,13 @@
+[sources]
+{% for source in nfce_sources %}
+{{ source.name }} = {{ source.path }}
+{% endfor %}
+
+[paths]
+destination_directory = {{ nfce_destination_directory }}
+temporary_directory = {{ nfce_temporary_directory }}
+destino = {{ nfce_heartbeat_destination }}
+ultimaExecucaoFile = {{ nfce_install_dir }}\log\ultima_execucao.txt
+
+[app]
+hotel = {{ nfce_hotel }}

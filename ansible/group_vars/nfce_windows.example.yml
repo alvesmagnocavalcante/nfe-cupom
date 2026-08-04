@@ -1,0 +1,14 @@
+nfce_hotel: Hotel Exemplo
+
+# Ative somente em homologação. Em produção, mantenha como false.
+nfce_prepare_fictitious_data: false
+
+nfce_sources:
+  - name: caixa_01
+    path: C:\NFCe\dados\caixa_01
+  - name: caixa_02
+    path: C:\NFCe\dados\caixa_02
+
+nfce_destination_directory: C:\NFCe\dados\destino
+nfce_temporary_directory: C:\NFCe\dados\temporario
+nfce_heartbeat_destination: C:\NFCe\dados\monitoramento

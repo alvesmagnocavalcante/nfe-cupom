@@ -1,0 +1,11 @@
+all:
+  children:
+    nfce_windows:
+      hosts:
+        windows_01:
+          ansible_host: 192.0.2.10
+          ansible_user: usuario@dominio.exemplo
+          ansible_connection: winrm
+          ansible_winrm_transport: ntlm
+          ansible_port: 5985
+          ansible_winrm_scheme: http

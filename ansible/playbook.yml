@@ -1,0 +1,79 @@
+---
+- name: Instalar e executar NFCe Trigger no Windows
+  hosts: nfce_windows
+  gather_facts: false
+  vars:
+    nfce_install_dir: C:\NFCe\trigger
+    nfce_python: C:\Python312\python.exe
+  tasks:
+    - name: Validar variáveis obrigatórias
+      ansible.builtin.assert:
+        that:
+          - nfce_sources | length > 0
+          - nfce_hotel | length > 0
+          - nfce_destination_directory | length > 0
+          - nfce_temporary_directory | length > 0
+          - nfce_heartbeat_destination | length > 0
+
+    - name: Criar diretórios para dados fictícios
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop: "{{ (nfce_sources | map(attribute='path') | list) + [nfce_destination_directory, nfce_temporary_directory, nfce_heartbeat_destination] }}"
+      when: nfce_prepare_fictitious_data | default(false) | bool
+
+    - name: Criar XMLs fictícios nas origens
+      ansible.windows.win_copy:
+        content: '<nfce id="{{ item.name }}"><total>10.00</total></nfce>'
+        dest: "{{ item.path }}\\nfce-{{ item.name }}.xml"
+      loop: "{{ nfce_sources }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: nfce_prepare_fictitious_data | default(false) | bool
+
+    - name: Atualizar data dos XMLs fictícios
+      ansible.windows.win_file:
+        path: "{{ item.path }}\\nfce-{{ item.name }}.xml"
+        state: touch
+      loop: "{{ nfce_sources }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: nfce_prepare_fictitious_data | default(false) | bool
+
+    - name: Criar diretórios da aplicação
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ nfce_install_dir }}"
+        - "{{ nfce_install_dir }}\\config"
+        - "{{ nfce_install_dir }}\\log"
+
+    - name: Instalar sincronizador
+      ansible.windows.win_copy:
+        src: ../main_trigger.py
+        dest: "{{ nfce_install_dir }}\\main_trigger.py"
+
+    - name: Gerar configuração
+      ansible.windows.win_template:
+        src: templates/config.ini.j2
+        dest: "{{ nfce_install_dir }}\\config\\config.ini"
+
+    - name: Remover tarefa agendada legada
+      community.windows.win_scheduled_task:
+        name: NFCeTrigger
+        state: absent
+
+    - name: Executar sincronizador pelo Ansible
+      ansible.windows.win_command:
+        argv:
+          - "{{ nfce_python }}"
+          - "{{ nfce_install_dir }}\\main_trigger.py"
+          - --config
+          - "{{ nfce_install_dir }}\\config\\config.ini"
+      register: nfce_sync
+      changed_when: true
+
+    - name: Exibir resultado da sincronização
+      ansible.builtin.debug:
+        var: nfce_sync.stdout_lines

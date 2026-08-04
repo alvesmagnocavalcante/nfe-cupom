@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+sandbox/
+
+# Dados e configurações locais
+config/*
+!config/config.example.ini
+log/
+Cupons/
+temp/
+
+# Inventário e variáveis específicas de cada ambiente
+ansible/inventory.yml
+ansible/group_vars/nfce_windows.yml
