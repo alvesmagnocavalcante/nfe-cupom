@@ -30,6 +30,10 @@ Para um ambiente de homologação, defina `nfce_prepare_fictitious_data: true` n
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.
 
+### Semaphore
+
+Os arquivos `ansible/inventory.yml` e `ansible/group_vars/nfce_windows.yml` são locais e não são enviados ao Git. Ao usar Semaphore, cadastre as variáveis `nfce_*` no inventário estático ou no ambiente associado ao template. Arquivos terminados em `.example.yml` servem apenas como modelo e não são carregados automaticamente.
+
 ## Alertas por e-mail
 
 Credenciais não ficam no código. Configure no ambiente da conta que executa o processo:

@@ -1,4 +1,6 @@
 nfce_hotel: Hotel Exemplo
+nfce_install_dir: C:\NFCe\trigger
+nfce_python: C:\Python312\python.exe
 
 # Ative somente em homologação. Em produção, mantenha como false.
 nfce_prepare_fictitious_data: false
