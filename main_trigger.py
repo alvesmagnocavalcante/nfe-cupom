@@ -126,12 +126,20 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
             source_files[name] = path
 
     destination_files = current_month_xml(settings.destination, now)
-    missing = sorted(set(source_files) - set(destination_files))
-    for name in missing:
+    temporary_files = current_month_xml(settings.temporary, now)
+    missing_destination = sorted(set(source_files) - set(destination_files))
+    missing_temporary = sorted(set(source_files) - set(temporary_files))
+
+    for name in missing_destination:
         source = source_files[name]
         print(f"{'[DRY-RUN] Copiaria' if dry_run else 'Copiando'}: {source} -> {settings.destination / name}")
         if not dry_run:
             shutil.copy2(source, settings.destination / name)
+
+    for name in missing_temporary:
+        source = source_files[name]
+        print(f"{'[DRY-RUN] Copiaria' if dry_run else 'Copiando'}: {source} -> {settings.temporary / name}")
+        if not dry_run:
             shutil.copy2(source, settings.temporary / name)
 
     if not dry_run:
@@ -139,7 +147,12 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
         settings.heartbeat_destination.mkdir(parents=True, exist_ok=True)
         settings.heartbeat_file.write_text(now.replace(tzinfo=None).isoformat(), encoding="utf-8")
         shutil.copy2(settings.heartbeat_file, settings.heartbeat_destination / settings.heartbeat_file.name)
-    print(f"Sincronização concluída: {len(missing)} novo(s), {len(source_files)} no mês.")
+    print(
+        "Sincronização concluída: "
+        f"{len(missing_destination)} novo(s) no destino, "
+        f"{len(missing_temporary)} novo(s) no temporário, "
+        f"{len(source_files)} no mês."
+    )
     return 0
 
 
