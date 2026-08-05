@@ -6,19 +6,11 @@
     pdv_nfce_path_resolved: "{{ pdv_nfce_path | default('C:\\PDV\\NFCe') }}"
     pdv_nfce_share_resolved: "{{ pdv_nfce_share | default('NFCe') }}"
     pdv_nfce_user_resolved: "{{ pdv_nfce_user | default(ansible_user) }}"
-  pre_tasks:
-    - name: Exigir definição da opção de dados fictícios
-      ansible.builtin.assert:
-        that:
-          - nfce_prepare_fictitious_data is defined
-        fail_msg: >-
-          Defina nfce_prepare_fictitious_data explicitamente como true ou false.
   tasks:
     - name: Criar pasta NFC-e no PDV
       ansible.windows.win_file:
         path: "{{ pdv_nfce_path_resolved }}"
         state: directory
-      when: nfce_prepare_fictitious_data | bool
 
     - name: Criar XML fictício no PDV
       ansible.windows.win_copy:
@@ -28,7 +20,6 @@
             <status>teste</status>
           </nfce>
         dest: "{{ pdv_nfce_path_resolved }}\\nfce-001.xml"
-      when: nfce_prepare_fictitious_data | bool
 
     - name: Configurar permissão NTFS no PDV
       ansible.windows.win_acl:
@@ -39,7 +30,6 @@
         state: present
         inherit: ContainerInherit,ObjectInherit
         propagation: None
-      when: nfce_prepare_fictitious_data | bool
 
     - name: Compartilhar pasta NFC-e do PDV
       ansible.windows.win_share:
@@ -48,7 +38,6 @@
         path: "{{ pdv_nfce_path_resolved }}"
         state: present
         full: "{{ pdv_nfce_user_resolved }}"
-      when: nfce_prepare_fictitious_data | bool
 
 - name: Instalar e executar NFCe Trigger no Windows
   hosts: nfce_windows

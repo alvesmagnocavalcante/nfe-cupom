@@ -34,7 +34,7 @@ Como a verificação por SHA-256 e a espera pelo Google Drive podem ultrapassar 
 
 Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\log\nfce_trigger.log`. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
 
-Defina obrigatoriamente `nfce_prepare_fictitious_data` no Semaphore. Em produção, use `false`. Em homologação, o valor `true` autoriza a criação das pastas configuradas e de um XML fictício em cada origem. O grupo `pdv_windows` só é alterado quando essa autorização estiver explicitamente habilitada.
+Os hosts incluídos em `pdv_windows` são considerados parte do laboratório: o playbook prepara a pasta, o compartilhamento e o XML fictício diretamente nesses PDVs. Em produção, não inclua esse grupo no inventário. Defina também `nfce_prepare_fictitious_data` obrigatoriamente no Semaphore; `true` cria dados adicionais nas origens configuradas no servidor central e `false` desabilita somente essa preparação adicional.
 
 O `ansible/playbook.yml` primeiro prepara a pasta, o XML e o compartilhamento dos hosts presentes no grupo `pdv_windows`; depois instala e executa a sincronização nos hosts do grupo `nfce_windows`. Em produção, omita o grupo `pdv_windows` do inventário para que o Ansible não altere as origens reais.
 
