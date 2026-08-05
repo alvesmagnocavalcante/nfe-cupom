@@ -3,17 +3,21 @@
   hosts: nfce_windows
   gather_facts: false
   vars:
-    nfce_install_dir: C:\NFCe\trigger
-    nfce_python: C:\Python312\python.exe
+    nfce_install_dir_resolved: "{{ nfce_install_dir | default('C:\\NFCe\\trigger') }}"
+    nfce_python_resolved: "{{ nfce_python | default('C:\\Python312\\python.exe') }}"
   tasks:
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:
         that:
-          - nfce_sources | length > 0
-          - nfce_hotel | length > 0
-          - nfce_destination_directory | length > 0
-          - nfce_temporary_directory | length > 0
-          - nfce_heartbeat_destination | length > 0
+          - (nfce_sources | default([])) | length > 0
+          - (nfce_hotel | default('')) | length > 0
+          - (nfce_destination_directory | default('')) | length > 0
+          - (nfce_temporary_directory | default('')) | length > 0
+          - (nfce_heartbeat_destination | default('')) | length > 0
+        fail_msg: >-
+          Variáveis NFC-e ausentes. Cadastre nfce_sources, nfce_hotel,
+          nfce_destination_directory, nfce_temporary_directory e
+          nfce_heartbeat_destination no inventário ou ambiente do Semaphore.
 
     - name: Criar diretórios para dados fictícios
       ansible.windows.win_file:
@@ -45,19 +49,19 @@
         path: "{{ item }}"
         state: directory
       loop:
-        - "{{ nfce_install_dir }}"
-        - "{{ nfce_install_dir }}\\config"
-        - "{{ nfce_install_dir }}\\log"
+        - "{{ nfce_install_dir_resolved }}"
+        - "{{ nfce_install_dir_resolved }}\\config"
+        - "{{ nfce_install_dir_resolved }}\\log"
 
     - name: Instalar sincronizador
       ansible.windows.win_copy:
         src: ../main_trigger.py
-        dest: "{{ nfce_install_dir }}\\main_trigger.py"
+        dest: "{{ nfce_install_dir_resolved }}\\main_trigger.py"
 
     - name: Gerar configuração
       ansible.windows.win_template:
         src: templates/config.ini.j2
-        dest: "{{ nfce_install_dir }}\\config\\config.ini"
+        dest: "{{ nfce_install_dir_resolved }}\\config\\config.ini"
 
     - name: Remover tarefa agendada legada
       community.windows.win_scheduled_task:
@@ -67,10 +71,10 @@
     - name: Executar sincronizador pelo Ansible
       ansible.windows.win_command:
         argv:
-          - "{{ nfce_python }}"
-          - "{{ nfce_install_dir }}\\main_trigger.py"
+          - "{{ nfce_python_resolved }}"
+          - "{{ nfce_install_dir_resolved }}\\main_trigger.py"
           - --config
-          - "{{ nfce_install_dir }}\\config\\config.ini"
+          - "{{ nfce_install_dir_resolved }}\\config\\config.ini"
       register: nfce_sync
       changed_when: true
 
