@@ -1,6 +1,0 @@
----
-- name: Preparar o PDV do laboratório
-  ansible.builtin.import_playbook: ../criar_pastas.yml
-
-- name: Instalar e executar a sincronização
-  ansible.builtin.import_playbook: playbook.yml

@@ -30,7 +30,7 @@ A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso 
 
 Para um ambiente de homologação, defina `nfce_prepare_fictitious_data: true` nas variáveis do grupo. O Ansible criará as pastas configuradas e um XML fictício em cada origem antes da sincronização. Mantenha essa opção ausente ou como `false` em produção.
 
-No laboratório com um Windows PDV separado, execute `ansible/laboratorio.yml`. Ele recria a pasta, o XML e o compartilhamento do PDV por meio de `criar_pastas.yml` e, em seguida, executa `ansible/playbook.yml` no Windows central. Em produção, continue usando somente `ansible/playbook.yml`.
+O `ansible/playbook.yml` primeiro prepara a pasta, o XML e o compartilhamento dos hosts presentes no grupo `pdv_windows`; depois instala e executa a sincronização nos hosts do grupo `nfce_windows`. Em produção, omita o grupo `pdv_windows` do inventário para que o Ansible não altere as origens reais.
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.
 
