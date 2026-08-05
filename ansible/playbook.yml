@@ -4,7 +4,10 @@
   gather_facts: false
   vars:
     nfce_install_dir_resolved: "{{ nfce_install_dir | default('C:\\NFCe\\trigger') }}"
-    nfce_python_resolved: "{{ nfce_python | default('C:\\Python312\\python.exe') }}"
+    nfce_python_dir_resolved: "{{ nfce_python_dir | default('C:\\Python313') }}"
+    nfce_python_resolved: "{{ nfce_python_dir_resolved }}\\python.exe"
+    nfce_python_version_resolved: "{{ nfce_python_version | default('3.13.14') }}"
+    nfce_python_installer: "C:\\Windows\\Temp\\python-{{ nfce_python_version_resolved }}-amd64.exe"
   tasks:
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:
@@ -18,6 +21,48 @@
           Variáveis NFC-e ausentes. Cadastre nfce_sources, nfce_hotel,
           nfce_destination_directory, nfce_temporary_directory e
           nfce_heartbeat_destination no inventário ou ambiente do Semaphore.
+
+    - name: Verificar instalação do Python
+      ansible.windows.win_stat:
+        path: "{{ nfce_python_resolved }}"
+      register: nfce_python_status
+
+    - name: Baixar instalador oficial do Python
+      ansible.windows.win_get_url:
+        url: "https://www.python.org/ftp/python/{{ nfce_python_version_resolved }}/python-{{ nfce_python_version_resolved }}-amd64.exe"
+        dest: "{{ nfce_python_installer }}"
+        checksum: c54d9b9bbb8a36e6489363ddd01139707fd781d72f1f9e90c7ec65d0061368e0
+        checksum_algorithm: sha256
+      when: not nfce_python_status.stat.exists
+
+    - name: Instalar Python para todos os usuários
+      ansible.windows.win_package:
+        path: "{{ nfce_python_installer }}"
+        arguments:
+          - /quiet
+          - InstallAllUsers=1
+          - PrependPath=1
+          - Include_test=0
+          - "TargetDir={{ nfce_python_dir_resolved }}"
+        creates_path: "{{ nfce_python_resolved }}"
+        state: present
+      when: not nfce_python_status.stat.exists
+
+    - name: Remover instalador temporário do Python
+      ansible.windows.win_file:
+        path: "{{ nfce_python_installer }}"
+        state: absent
+
+    - name: Confirmar instalação do Python
+      ansible.windows.win_stat:
+        path: "{{ nfce_python_resolved }}"
+      register: nfce_python_installed
+
+    - name: Validar executável do Python
+      ansible.builtin.assert:
+        that:
+          - nfce_python_installed.stat.exists
+        fail_msg: "Python não encontrado em {{ nfce_python_resolved }} após a instalação."
 
     - name: Criar diretórios para dados fictícios
       ansible.windows.win_file:
