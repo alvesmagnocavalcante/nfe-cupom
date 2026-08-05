@@ -1,16 +1,46 @@
 import argparse
 import configparser
+import logging
 import os
 import shutil
 import smtplib
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from email.mime.text import MIMEText
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
+LOGGER = logging.getLogger("nfce_trigger")
+
+
+def configure_logging(log_file: Path) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=10,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    LOGGER.handlers.clear()
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+    LOGGER.addHandler(console_handler)
+    LOGGER.addHandler(file_handler)
 
 
 @dataclass(frozen=True)
@@ -69,7 +99,7 @@ def send_alert(hotel: str, message: str) -> None:
     password = os.getenv("NFCE_SMTP_PASSWORD")
     recipient = os.getenv("NFCE_ALERT_RECIPIENT")
     if not all((user, password, recipient)):
-        print(f"[WARN] Alerta não enviado; SMTP não configurado: {message}")
+        LOGGER.warning("Alerta não enviado; SMTP não configurado: %s", message)
         return
 
     email = MIMEText(f"Problema no NFCeTrigger do hotel {hotel}: {message}", _charset="utf-8")
@@ -81,7 +111,7 @@ def send_alert(hotel: str, message: str) -> None:
             server.login(user, password)
             server.send_message(email)
     except (OSError, smtplib.SMTPException) as error:
-        print(f"[ERROR] Falha ao enviar alerta: {error}")
+        LOGGER.error("Falha ao enviar alerta: %s", error)
 
 
 def start_google_drive() -> None:
@@ -100,17 +130,25 @@ def start_google_drive() -> None:
 
 def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None) -> int:
     now = now or datetime.now()
-    sources = [source for source in settings.sources if source.is_dir()]
-    unavailable = [str(source) for source in settings.sources if not source.is_dir()]
-    for source in unavailable:
-        print(f"[WARN] Origem indisponível: {source}")
+    sources: list[Path] = []
+    for source in settings.sources:
+        try:
+            available = source.is_dir()
+        except OSError as error:
+            LOGGER.warning("Origem indisponível: %s (%s)", source, error)
+            continue
+        if available:
+            sources.append(source)
+        else:
+            LOGGER.warning("Origem indisponível: %s", source)
+
     if not sources:
         message = "Nenhuma pasta de origem está disponível."
         send_alert(settings.hotel, message)
         raise RuntimeError(message)
 
     if not settings.temporary.is_dir():
-        print(f"[WARN] Pasta temporária indisponível: {settings.temporary}")
+        LOGGER.warning("Pasta temporária indisponível: %s", settings.temporary)
         if os.name == "nt" and not dry_run:
             start_google_drive()
         send_alert(settings.hotel, f"Pasta temporária indisponível: {settings.temporary}")
@@ -121,7 +159,7 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
     for source in sources:
         for name, path in current_month_xml(source, now).items():
             if name in source_files and source_files[name] != path:
-                print(f"[WARN] Nome duplicado ignorado: {path}")
+                LOGGER.warning("Nome duplicado ignorado: %s", path)
                 continue
             source_files[name] = path
 
@@ -132,13 +170,13 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
 
     for name in missing_destination:
         source = source_files[name]
-        print(f"{'[DRY-RUN] Copiaria' if dry_run else 'Copiando'}: {source} -> {settings.destination / name}")
+        LOGGER.info("%s: %s -> %s", "[DRY-RUN] Copiaria" if dry_run else "Copiando", source, settings.destination / name)
         if not dry_run:
             shutil.copy2(source, settings.destination / name)
 
     for name in missing_temporary:
         source = source_files[name]
-        print(f"{'[DRY-RUN] Copiaria' if dry_run else 'Copiando'}: {source} -> {settings.temporary / name}")
+        LOGGER.info("%s: %s -> %s", "[DRY-RUN] Copiaria" if dry_run else "Copiando", source, settings.temporary / name)
         if not dry_run:
             shutil.copy2(source, settings.temporary / name)
 
@@ -147,7 +185,8 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
         settings.heartbeat_destination.mkdir(parents=True, exist_ok=True)
         settings.heartbeat_file.write_text(now.replace(tzinfo=None).isoformat(), encoding="utf-8")
         shutil.copy2(settings.heartbeat_file, settings.heartbeat_destination / settings.heartbeat_file.name)
-    print(
+        LOGGER.info("Arquivo de monitoramento atualizado: %s", settings.heartbeat_file)
+    LOGGER.info(
         "Sincronização concluída: "
         f"{len(missing_destination)} novo(s) no destino, "
         f"{len(missing_temporary)} novo(s) no temporário, "
@@ -159,10 +198,22 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sincroniza XMLs de NFC-e do mês atual.")
     parser.add_argument("--config", type=Path, default=BASE_DIR / "config" / "config.ini")
+    parser.add_argument("--log-file", type=Path, default=BASE_DIR / "log" / "nfce_trigger.log")
     parser.add_argument("--dry-run", action="store_true", help="Exibe ações sem alterar arquivos.")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     arguments = parse_args()
-    raise SystemExit(sync(load_config(arguments.config), arguments.dry_run))
+    configure_logging(arguments.log_file)
+    started_at = time.monotonic()
+    LOGGER.info("Execução iniciada%s.", " em modo de simulação" if arguments.dry_run else "")
+    try:
+        settings = load_config(arguments.config)
+        LOGGER.info("Hotel: %s | Origens configuradas: %s", settings.hotel, len(settings.sources))
+        exit_code = sync(settings, arguments.dry_run)
+    except Exception as error:
+        LOGGER.exception("Execução encerrada com erro: %s", error)
+        exit_code = 1
+    LOGGER.info("Execução finalizada com código %s em %.2f segundo(s).", exit_code, time.monotonic() - started_at)
+    raise SystemExit(exit_code)

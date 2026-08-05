@@ -172,9 +172,14 @@
       ansible.windows.win_command:
         argv:
           - "{{ nfce_python_resolved }}"
+          - -X
+          - utf8
           - "{{ nfce_install_dir_resolved }}\\main_trigger.py"
           - --config
           - "{{ nfce_install_dir_resolved }}\\config\\config.ini"
+          - --log-file
+          - "{{ nfce_install_dir_resolved }}\\log\\nfce_trigger.log"
+        output_encoding_override: utf-8
       become: true
       become_method: runas
       become_user: "{{ ansible_user }}"
