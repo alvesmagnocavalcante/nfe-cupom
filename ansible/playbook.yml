@@ -64,11 +64,11 @@
           - nfce_python_installed.stat.exists
         fail_msg: "Python não encontrado em {{ nfce_python_resolved }} após a instalação."
 
-    - name: Criar diretórios para dados fictícios
+    - name: Criar diretórios de origem para dados fictícios
       ansible.windows.win_file:
         path: "{{ item }}"
         state: directory
-      loop: "{{ (nfce_sources | map(attribute='path') | list) + [nfce_destination_directory, nfce_temporary_directory, nfce_heartbeat_destination] }}"
+      loop: "{{ nfce_sources | map(attribute='path') | list }}"
       when: nfce_prepare_fictitious_data | default(false) | bool
 
     - name: Criar XMLs fictícios nas origens
@@ -88,6 +88,15 @@
       loop_control:
         label: "{{ item.name }}"
       when: nfce_prepare_fictitious_data | default(false) | bool
+
+    - name: Criar diretórios de saída da sincronização
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ nfce_destination_directory }}"
+        - "{{ nfce_temporary_directory }}"
+        - "{{ nfce_heartbeat_destination }}"
 
     - name: Criar diretórios da aplicação
       ansible.windows.win_file:
