@@ -26,15 +26,23 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
 
 Cada execução do playbook garante a instalação do Python, roda o sincronizador pelo WinRM e exibe o resultado no terminal do controlador. O instalador de 64 bits é obtido do site oficial do Python e validado por SHA-256. O playbook também remove a antiga tarefa `NFCeTrigger` do Agendador do Windows, caso exista.
 
+A versão do Python e seu SHA-256 são mantidos juntos em `nfce_python_installers`, no playbook. Uma versão não cadastrada é rejeitada antes do download, evitando validar um instalador com o checksum de outra versão.
+
 A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso cria um logon apto a acessar compartilhamentos de rede a partir do Windows central e evita a limitação de salto duplo do NTLM.
 
 Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\log\nfce_trigger.log`. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
 
-Para um ambiente de homologação, defina `nfce_prepare_fictitious_data: true` nas variáveis do grupo. O Ansible criará as pastas configuradas e um XML fictício em cada origem antes da sincronização. Mantenha essa opção ausente ou como `false` em produção.
+Defina obrigatoriamente `nfce_prepare_fictitious_data` no Semaphore. Em produção, use `false`. Em homologação, o valor `true` autoriza a criação das pastas configuradas e de um XML fictício em cada origem. O grupo `pdv_windows` só é alterado quando essa autorização estiver explicitamente habilitada.
 
 O `ansible/playbook.yml` primeiro prepara a pasta, o XML e o compartilhamento dos hosts presentes no grupo `pdv_windows`; depois instala e executa a sincronização nos hosts do grupo `nfce_windows`. Em produção, omita o grupo `pdv_windows` do inventário para que o Ansible não altere as origens reais.
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.
+
+## Integridade da sincronização
+
+Os arquivos são comparados por tamanho e SHA-256. Uma cópia é gravada primeiro em um arquivo temporário no mesmo diretório, validada e publicada atomicamente. Arquivos existentes com conteúdo divergente são corrigidos. Se duas origens apresentarem o mesmo nome de XML, a execução é interrompida e informa todas as origens envolvidas.
+
+Quando a pasta temporária não está disponível, o sincronizador tenta criá-la. No Windows, se a unidade continuar ausente, inicia o Google Drive e aguarda até 60 segundos. Qualquer falha da configuração, leitura, validação, cópia, heartbeat ou inicialização gera uma tentativa de alerta por e-mail e encerra a execução com código diferente de zero.
 
 ### Semaphore
 

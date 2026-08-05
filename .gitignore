@@ -1,12 +1,27 @@
+# Python
 __pycache__/
-*.pyc
-sandbox/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Ferramentas locais
+/.ansible/
+/.agents/
+/.codex/
 
 # Dados e configurações locais
-config/*
-log/
-Cupons/
-temp/
+/config/*
+/log/
+/Cupons/
+/temp/
 
-# Inventário e variáveis específicas de cada ambiente
-ansible/inventory.yml
+# Inventário gerenciado pelo Semaphore
+/ansible/inventory.yml
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+*.swp

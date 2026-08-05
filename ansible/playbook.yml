@@ -6,6 +6,15 @@
     pdv_nfce_path_resolved: "{{ pdv_nfce_path | default('C:\\PDV\\NFCe') }}"
     pdv_nfce_share_resolved: "{{ pdv_nfce_share | default('NFCe') }}"
     pdv_nfce_user_resolved: "{{ pdv_nfce_user | default(ansible_user) }}"
+  pre_tasks:
+    - name: Exigir autorização explícita para dados fictícios
+      ansible.builtin.assert:
+        that:
+          - nfce_prepare_fictitious_data is defined
+          - nfce_prepare_fictitious_data | default(false) | bool
+        fail_msg: >-
+          O grupo pdv_windows altera origens e cria dados fictícios. Defina
+          nfce_prepare_fictitious_data=true explicitamente para autorizar.
   tasks:
     - name: Criar pasta NFC-e no PDV
       ansible.windows.win_file:
@@ -48,6 +57,10 @@
     nfce_python_resolved: "{{ nfce_python_dir_resolved }}\\python.exe"
     nfce_python_version_resolved: "{{ nfce_python_version | default('3.13.14') }}"
     nfce_python_installer: "C:\\Windows\\Temp\\python-{{ nfce_python_version_resolved }}-amd64.exe"
+    nfce_python_installers:
+      "3.13.14":
+        sha256: c54d9b9bbb8a36e6489363ddd01139707fd781d72f1f9e90c7ec65d0061368e0
+    nfce_python_checksum_resolved: "{{ nfce_python_installers[nfce_python_version_resolved].sha256 }}"
   tasks:
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:
@@ -57,23 +70,45 @@
           - (nfce_destination_directory | default('')) | length > 0
           - (nfce_temporary_directory | default('')) | length > 0
           - (nfce_heartbeat_destination | default('')) | length > 0
+          - nfce_prepare_fictitious_data is defined
+          - nfce_python_version_resolved in nfce_python_installers
         fail_msg: >-
           Variáveis NFC-e ausentes. Cadastre nfce_sources, nfce_hotel,
           nfce_destination_directory, nfce_temporary_directory e
-          nfce_heartbeat_destination no inventário ou ambiente do Semaphore.
+          nfce_heartbeat_destination no inventário ou ambiente do Semaphore,
+          defina nfce_prepare_fictitious_data explicitamente como true ou false
+          e use uma versão de Python presente em nfce_python_installers.
 
     - name: Verificar instalação do Python
       ansible.windows.win_stat:
         path: "{{ nfce_python_resolved }}"
       register: nfce_python_status
 
+    - name: Verificar versão atual do Python
+      ansible.windows.win_command:
+        argv:
+          - "{{ nfce_python_resolved }}"
+          - --version
+      register: nfce_python_current_version
+      changed_when: false
+      failed_when: false
+      when: nfce_python_status.stat.exists
+
+    - name: Determinar necessidade de instalação do Python
+      ansible.builtin.set_fact:
+        nfce_python_needs_install: >-
+          {{
+            not nfce_python_status.stat.exists
+            or nfce_python_version_resolved not in (nfce_python_current_version.stdout | default(''))
+          }}
+
     - name: Baixar instalador oficial do Python
       ansible.windows.win_get_url:
         url: "https://www.python.org/ftp/python/{{ nfce_python_version_resolved }}/python-{{ nfce_python_version_resolved }}-amd64.exe"
         dest: "{{ nfce_python_installer }}"
-        checksum: c54d9b9bbb8a36e6489363ddd01139707fd781d72f1f9e90c7ec65d0061368e0
+        checksum: "{{ nfce_python_checksum_resolved }}"
         checksum_algorithm: sha256
-      when: not nfce_python_status.stat.exists
+      when: nfce_python_needs_install
 
     - name: Instalar Python para todos os usuários
       ansible.windows.win_package:
@@ -86,30 +121,37 @@
           - "TargetDir={{ nfce_python_dir_resolved }}"
         creates_path: "{{ nfce_python_resolved }}"
         state: present
-      when: not nfce_python_status.stat.exists
+      when: nfce_python_needs_install
 
     - name: Remover instalador temporário do Python
       ansible.windows.win_file:
         path: "{{ nfce_python_installer }}"
         state: absent
 
-    - name: Confirmar instalação do Python
-      ansible.windows.win_stat:
-        path: "{{ nfce_python_resolved }}"
-      register: nfce_python_installed
+    - name: Confirmar versão instalada do Python
+      ansible.windows.win_command:
+        argv:
+          - "{{ nfce_python_resolved }}"
+          - --version
+      register: nfce_python_installed_version
+      changed_when: false
+      failed_when: false
 
-    - name: Validar executável do Python
+    - name: Validar executável e versão do Python
       ansible.builtin.assert:
         that:
-          - nfce_python_installed.stat.exists
-        fail_msg: "Python não encontrado em {{ nfce_python_resolved }} após a instalação."
+          - nfce_python_installed_version.rc == 0
+          - nfce_python_version_resolved in nfce_python_installed_version.stdout
+        fail_msg: >-
+          Python {{ nfce_python_version_resolved }} não encontrado em
+          {{ nfce_python_resolved }} após a instalação.
 
     - name: Criar diretórios de origem para dados fictícios
       ansible.windows.win_file:
         path: "{{ item }}"
         state: directory
       loop: "{{ nfce_sources | map(attribute='path') | list }}"
-      when: nfce_prepare_fictitious_data | default(false) | bool
+      when: nfce_prepare_fictitious_data | bool
 
     - name: Criar XMLs fictícios nas origens
       ansible.windows.win_copy:
@@ -118,7 +160,7 @@
       loop: "{{ nfce_sources }}"
       loop_control:
         label: "{{ item.name }}"
-      when: nfce_prepare_fictitious_data | default(false) | bool
+      when: nfce_prepare_fictitious_data | bool
 
     - name: Atualizar data dos XMLs fictícios
       ansible.windows.win_file:
@@ -127,7 +169,7 @@
       loop: "{{ nfce_sources }}"
       loop_control:
         label: "{{ item.name }}"
-      when: nfce_prepare_fictitious_data | default(false) | bool
+      when: nfce_prepare_fictitious_data | bool
 
     - name: Criar diretórios de saída da sincronização
       ansible.windows.win_file:
@@ -135,7 +177,6 @@
         state: directory
       loop:
         - "{{ nfce_destination_directory }}"
-        - "{{ nfce_temporary_directory }}"
         - "{{ nfce_heartbeat_destination }}"
 
     - name: Criar diretórios da aplicação
@@ -181,7 +222,7 @@
           - "{{ nfce_install_dir_resolved }}\\log\\nfce_trigger.log"
         output_encoding_override: utf-8
       become: true
-      become_method: runas
+      become_method: ansible.builtin.runas
       become_user: "{{ ansible_user }}"
       vars:
         ansible_become_password: "{{ ansible_password }}"
