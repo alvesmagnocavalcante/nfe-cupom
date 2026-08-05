@@ -12,9 +12,9 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
    ansible-galaxy collection install -r ansible/requirements.yml
    ```
 
-2. Crie `ansible/inventory.yml` e `ansible/group_vars/nfce_windows.yml` a partir dos respectivos arquivos `.example.yml`, mantendo as cópias fora do Git.
+2. No Semaphore, cadastre o inventário com os grupos `nfce_windows` e, somente em homologação, `pdv_windows`. Configure nele as variáveis `nfce_*` exigidas pelo playbook.
 
-3. Proteja a senha do inventário com Ansible Vault ou informe-a em tempo de execução. Nunca versione credenciais.
+3. Armazene a credencial WinRM no Key Store do Semaphore e vincule-a ao inventário. Nunca versione credenciais.
 
 4. Valide a conexão e aplique:
 
@@ -38,7 +38,7 @@ Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL o
 
 ### Semaphore
 
-Os arquivos `ansible/inventory.yml` e `ansible/group_vars/nfce_windows.yml` são locais e não são enviados ao Git. Ao usar Semaphore, cadastre as variáveis `nfce_*` no inventário estático ou no ambiente associado ao template. Arquivos terminados em `.example.yml` servem apenas como modelo e não são carregados automaticamente.
+O arquivo `ansible/inventory.yml` é local e não é enviado ao Git. Cadastre as variáveis `nfce_*` no inventário estático ou no ambiente associado ao template.
 
 ## Alertas por e-mail
 

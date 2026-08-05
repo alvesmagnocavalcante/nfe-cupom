@@ -1,8 +1,0 @@
----
-- name: Testar conectividade com os hosts Windows
-  hosts: all
-  gather_facts: false
-
-  tasks:
-    - name: Executar o módulo ping do Ansible para Windows
-      ansible.windows.win_ping:
