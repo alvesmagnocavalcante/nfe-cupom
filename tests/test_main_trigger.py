@@ -114,7 +114,7 @@ class GoogleDriveTests(unittest.TestCase):
             directory.available = True
 
         with (
-            patch.object(main_trigger.os, "name", "nt"),
+            patch.object(main_trigger, "running_on_windows", return_value=True),
             patch.object(main_trigger, "start_google_drive", side_effect=make_available) as start,
         ):
             main_trigger.ensure_temporary_directory(directory, False, timeout_seconds=0, poll_seconds=0)
