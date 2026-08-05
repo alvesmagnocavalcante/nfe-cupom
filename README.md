@@ -26,6 +26,8 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
 
 Cada execução do playbook garante a instalação do Python, roda o sincronizador pelo WinRM e exibe o resultado no terminal do controlador. O instalador de 64 bits é obtido do site oficial do Python e validado por SHA-256. O playbook também remove a antiga tarefa `NFCeTrigger` do Agendador do Windows, caso exista.
 
+A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso cria um logon apto a acessar compartilhamentos de rede a partir do Windows central e evita a limitação de salto duplo do NTLM.
+
 Para um ambiente de homologação, defina `nfce_prepare_fictitious_data: true` nas variáveis do grupo. O Ansible criará as pastas configuradas e um XML fictício em cada origem antes da sincronização. Mantenha essa opção ausente ou como `false` em produção.
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.

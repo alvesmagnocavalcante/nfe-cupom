@@ -113,6 +113,12 @@
         name: NFCeTrigger
         state: absent
 
+    - name: Garantir serviço necessário para execução com runas
+      ansible.windows.win_service:
+        name: seclogon
+        start_mode: manual
+        state: started
+
     - name: Executar sincronizador pelo Ansible
       ansible.windows.win_command:
         argv:
@@ -120,6 +126,11 @@
           - "{{ nfce_install_dir_resolved }}\\main_trigger.py"
           - --config
           - "{{ nfce_install_dir_resolved }}\\config\\config.ini"
+      become: true
+      become_method: runas
+      become_user: "{{ ansible_user }}"
+      vars:
+        ansible_become_password: "{{ ansible_password }}"
       register: nfce_sync
       changed_when: true
 
