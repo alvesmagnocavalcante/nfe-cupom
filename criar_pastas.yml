@@ -1,12 +1,16 @@
 ---
 - name: Criar e compartilhar pasta NFC-e
-  hosts: PDV
+  hosts: pdv_windows
   gather_facts: false
+  vars:
+    pdv_nfce_path_resolved: "{{ pdv_nfce_path | default('C:\\PDV\\NFCe') }}"
+    pdv_nfce_share_resolved: "{{ pdv_nfce_share | default('NFCe') }}"
+    pdv_nfce_user_resolved: "{{ pdv_nfce_user | default(ansible_user) }}"
 
   tasks:
     - name: Criar pasta NFC-e
       ansible.windows.win_file:
-        path: C:\PDV\NFCe
+        path: "{{ pdv_nfce_path_resolved }}"
         state: directory
 
     - name: Criar arquivo XML
@@ -16,12 +20,12 @@
           <nfce>
             <status>teste</status>
           </nfce>
-        dest: C:\PDV\NFCe\nfce-001.xml
+        dest: "{{ pdv_nfce_path_resolved }}\\nfce-001.xml"
 
-    - name: Dar permissão NTFS para IEUser
+    - name: Dar permissão NTFS para o usuário do PDV
       ansible.windows.win_acl:
-        path: C:\PDV\NFCe
-        user: 'MSEDGEWIN10\IEUser'
+        path: "{{ pdv_nfce_path_resolved }}"
+        user: "{{ pdv_nfce_user_resolved }}"
         rights: Modify
         type: allow
         state: present
@@ -30,8 +34,8 @@
 
     - name: Compartilhar pasta NFC-e
       ansible.windows.win_share:
-        name: NFCe
+        name: "{{ pdv_nfce_share_resolved }}"
         description: Compartilhamento NFC-e
-        path: C:\PDV\NFCe
+        path: "{{ pdv_nfce_path_resolved }}"
         state: present
-        full: 'MSEDGEWIN10\IEUser'
+        full: "{{ pdv_nfce_user_resolved }}"
