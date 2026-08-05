@@ -63,6 +63,7 @@
       "3.13.14":
         sha256: c54d9b9bbb8a36e6489363ddd01139707fd781d72f1f9e90c7ec65d0061368e0
     nfce_python_checksum_resolved: "{{ nfce_python_installers[nfce_python_version_resolved].sha256 }}"
+    ansible_winrm_connection_timeout: "{{ nfce_winrm_connection_timeout | default(600) | int }}"
   tasks:
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:

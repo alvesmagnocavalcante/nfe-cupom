@@ -30,6 +30,8 @@ A versão do Python e seu SHA-256 são mantidos juntos em `nfce_python_installer
 
 A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso cria um logon apto a acessar compartilhamentos de rede a partir do Windows central e evita a limitação de salto duplo do NTLM.
 
+Como a verificação por SHA-256 e a espera pelo Google Drive podem ultrapassar o limite padrão do WinRM, o playbook usa 600 segundos para a conexão. Esse valor pode ser alterado no Semaphore pela variável `nfce_winrm_connection_timeout`.
+
 Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\log\nfce_trigger.log`. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
 
 Defina obrigatoriamente `nfce_prepare_fictitious_data` no Semaphore. Em produção, use `false`. Em homologação, o valor `true` autoriza a criação das pastas configuradas e de um XML fictício em cada origem. O grupo `pdv_windows` só é alterado quando essa autorização estiver explicitamente habilitada.
