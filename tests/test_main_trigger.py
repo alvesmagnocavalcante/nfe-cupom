@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-import main_trigger
+from nfce_trigger import application, files, google_drive
+from nfce_trigger.config import Settings, load_config
+from nfce_trigger.sync import sync
 
 
 class SyncTests(unittest.TestCase):
@@ -30,7 +32,7 @@ class SyncTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def settings(self, sources=None):
-        return main_trigger.Settings(
+        return Settings(
             sources=tuple(sources or (self.source,)),
             destination=self.destination,
             temporary=self.temporary,
@@ -50,7 +52,7 @@ class SyncTests(unittest.TestCase):
         source = self.create_current_xml(self.source, content="<a>1</a>")
         target = self.create_current_xml(self.destination, content="<a>2</a>")
 
-        result = main_trigger.sync(self.settings(), now=self.now)
+        result = sync(self.settings(), now=self.now)
 
         self.assertEqual(result, 0)
         self.assertEqual(target.read_bytes(), source.read_bytes())
@@ -63,7 +65,7 @@ class SyncTests(unittest.TestCase):
         self.create_current_xml(second_source, content="<second />")
 
         with self.assertRaisesRegex(RuntimeError, "Colisão de nomes entre origens"):
-            main_trigger.sync(self.settings((self.source, second_source)), now=self.now)
+            sync(self.settings((self.source, second_source)), now=self.now)
 
         self.assertFalse((self.destination / "nfe.xml").exists())
 
@@ -71,7 +73,7 @@ class SyncTests(unittest.TestCase):
         self.create_current_xml(self.source)
         self.destination.rmdir()
 
-        result = main_trigger.sync(self.settings(), dry_run=True, now=self.now)
+        result = sync(self.settings(), dry_run=True, now=self.now)
 
         self.assertEqual(result, 0)
         self.assertFalse(self.destination.exists())
@@ -82,9 +84,9 @@ class SyncTests(unittest.TestCase):
         source = self.create_current_xml(self.source, content="conteúdo válido")
         target = self.destination / source.name
 
-        main_trigger.atomic_copy_verified(source, target)
+        files.atomic_copy_verified(source, target)
 
-        self.assertTrue(main_trigger.files_match(source, target))
+        self.assertTrue(files.files_match(source, target))
         self.assertFalse(list(self.destination.glob("*.part")))
 
     def test_corrupted_copy_does_not_replace_existing_target(self):
@@ -95,9 +97,9 @@ class SyncTests(unittest.TestCase):
         def corrupt_copy(unused_source, temporary):
             temporary.write_text("ruim", encoding="utf-8")
 
-        with patch.object(main_trigger.shutil, "copy2", side_effect=corrupt_copy):
+        with patch.object(files.shutil, "copy2", side_effect=corrupt_copy):
             with self.assertRaisesRegex(OSError, "Conteúdo divergente"):
-                main_trigger.atomic_copy_verified(source, target)
+                files.atomic_copy_verified(source, target)
 
         self.assertEqual(target.read_text(encoding="utf-8"), "atual")
         self.assertFalse(list(self.destination.glob("*.part")))
@@ -125,10 +127,19 @@ class GoogleDriveTests(unittest.TestCase):
             directory.available = True
 
         with (
-            patch.object(main_trigger, "running_on_windows", return_value=True),
-            patch.object(main_trigger, "start_google_drive", side_effect=make_available) as start,
+            patch.object(google_drive, "running_on_windows", return_value=True),
+            patch.object(
+                google_drive,
+                "start_google_drive",
+                side_effect=make_available,
+            ) as start,
         ):
-            main_trigger.ensure_temporary_directory(directory, False, timeout_seconds=0, poll_seconds=0)
+            google_drive.ensure_temporary_directory(
+                directory,
+                False,
+                timeout_seconds=0,
+                poll_seconds=0,
+            )
 
         start.assert_called_once_with()
 
@@ -140,8 +151,8 @@ class AlertTests(unittest.TestCase):
             log_file=Path("ignorado.log"),
             dry_run=False,
         )
-        with patch.object(main_trigger, "send_alert") as alert:
-            result = main_trigger.run(arguments)
+        with patch.object(application, "send_alert") as alert:
+            result = application.run(arguments)
 
         self.assertEqual(result, 1)
         alert.assert_called_once()
@@ -163,13 +174,13 @@ class ConfigTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "Nenhuma origem"):
-            main_trigger.load_config(self.config)
+            load_config(self.config)
 
     def test_reports_missing_paths_section_as_validation_error(self):
         self.config.write_text("[sources]\npdv = C:\\\\NFCe\n", encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "Configurações ausentes em \\[paths\\]"):
-            main_trigger.load_config(self.config)
+            load_config(self.config)
 
     def test_rejects_empty_required_path(self):
         self.config.write_text(
@@ -186,7 +197,7 @@ ultimaExecucaoFile = C:\\estado.txt
         )
 
         with self.assertRaisesRegex(ValueError, "destination_directory"):
-            main_trigger.load_config(self.config)
+            load_config(self.config)
 
 
 if __name__ == "__main__":

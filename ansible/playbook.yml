@@ -133,6 +133,11 @@
         src: ../main_trigger.py
         dest: "{{ nfce_install_dir_resolved }}\\main_trigger.py"
 
+    - name: Instalar módulos do sincronizador
+      ansible.windows.win_copy:
+        src: ../nfce_trigger/
+        dest: "{{ nfce_install_dir_resolved }}\\nfce_trigger\\"
+
     - name: Gerar configuração
       ansible.windows.win_template:
         src: templates/config.ini.j2
