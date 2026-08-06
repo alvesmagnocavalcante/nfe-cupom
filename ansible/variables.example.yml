@@ -1,0 +1,36 @@
+---
+# Modelo de variáveis do NFCe Trigger para o Semaphore.
+#
+# Substitua todos os valores de exemplo pelos caminhos reais. Este arquivo não
+# deve conter senhas. Cadastre a credencial WinRM no Key Store do Semaphore e
+# vincule-a ao inventário/template de execução.
+
+# Variáveis obrigatórias
+nfce_hotel: Hotel Exemplo
+
+# Cada origem precisa ter um nome único e um caminho existente. A conta WinRM
+# deve possuir permissão de leitura nesses compartilhamentos.
+nfce_sources:
+  - name: pdv01
+    path: '\\PDV01\NFCe'
+  - name: pdv02
+    path: '\\PDV02\NFCe'
+
+# A conta WinRM precisa possuir permissão de escrita nestes diretórios.
+nfce_destination_directory: 'C:\NFCe\XML'
+nfce_temporary_directory: 'G:\Meu Drive\NFCe'
+nfce_heartbeat_destination: 'C:\NFCe\Monitoramento'
+
+# Variáveis opcionais. Remova os comentários somente se precisar alterar os
+# valores padrão definidos no playbook.
+# nfce_install_dir: 'C:\NFCe\trigger'
+# nfce_python_dir: 'C:\Python313'
+# nfce_python_version: '3.13.14'
+# nfce_winrm_connection_timeout: 600
+
+# Não adicione ansible_password neste arquivo. O playbook recebe ansible_user e
+# ansible_password da credencial WinRM vinculada pelo Semaphore.
+#
+# Os alertas SMTP também não são configurados aqui. NFCE_SMTP_USER,
+# NFCE_SMTP_PASSWORD e NFCE_ALERT_RECIPIENT devem existir no ambiente da conta
+# Windows que executa o sincronizador.

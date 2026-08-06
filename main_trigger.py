@@ -1,10 +1,4 @@
-"""Sincroniza XMLs de NFC-e com cópia validada, logs e alertas.
-
-O programa lê as pastas de um arquivo INI, seleciona os XMLs modificados no
-mês atual e mantém duas cópias: uma no destino principal e outra na pasta
-temporária/intermediária. Ele não valida regras fiscais internas do XML; a
-validação garante que a cópia seja idêntica ao arquivo de origem.
-"""
+"""Sincroniza XMLs de NFC-e com validação, logs e alertas."""
 
 import argparse
 import configparser
@@ -27,13 +21,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 LOGGER = logging.getLogger("nfce_trigger")
 
-# Tempo máximo de espera para o Google Drive disponibilizar a pasta montada.
 GOOGLE_DRIVE_START_TIMEOUT_SECONDS = 60
 GOOGLE_DRIVE_POLL_SECONDS = 2
 
 
 def configure_logging(log_file: Path) -> None:
-    """Envia os logs para o terminal e para um arquivo com rotação automática."""
+    """Configura os logs no terminal e em arquivo."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(message)s",
@@ -60,7 +53,7 @@ def configure_logging(log_file: Path) -> None:
 
 @dataclass(frozen=True)
 class Settings:
-    """Reúne todas as configurações necessárias para uma sincronização."""
+    """Armazena as configurações da sincronização."""
 
     sources: tuple[Path, ...]
     destination: Path
@@ -71,13 +64,23 @@ class Settings:
 
 
 def load_config(path: Path) -> Settings:
-    """Lê o arquivo INI, valida os campos obrigatórios e devolve as configurações."""
+    """Carrega e valida a configuração INI."""
     if not path.is_file():
         raise FileNotFoundError(f"Configuração não encontrada: {path}")
 
     config = configparser.ConfigParser()
     config.read(path, encoding="utf-8-sig")
-    if not config.has_section("sources") or not config.items("sources"):
+    source_values = (
+        (value.strip().strip("\"'") for _, value in config.items("sources"))
+        if config.has_section("sources")
+        else ()
+    )
+    sources = tuple(
+        Path(value)
+        for value in source_values
+        if value
+    )
+    if not sources:
         raise ValueError("Nenhuma origem configurada em [sources].")
 
     required = {
@@ -86,13 +89,20 @@ def load_config(path: Path) -> Settings:
         "destino",
         "ultimaexecucaofile",
     }
-    paths = {key.lower(): value.strip().strip("\"'") for key, value in config.items("paths")}
-    missing = required - paths.keys()
+    paths = (
+        {
+            key.lower(): value.strip().strip("\"'")
+            for key, value in config.items("paths")
+        }
+        if config.has_section("paths")
+        else {}
+    )
+    missing = {key for key in required if not paths.get(key)}
     if missing:
         raise ValueError(f"Configurações ausentes em [paths]: {', '.join(sorted(missing))}")
 
     return Settings(
-        sources=tuple(Path(value.strip().strip("\"'")) for _, value in config.items("sources") if value.strip()),
+        sources=sources,
         destination=Path(paths["destination_directory"]),
         temporary=Path(paths["temporary_directory"]),
         heartbeat_destination=Path(paths["destino"]),
@@ -102,7 +112,7 @@ def load_config(path: Path) -> Settings:
 
 
 def current_month_xml(directory: Path, now: datetime) -> dict[str, Path]:
-    """Lista, pelo nome, somente os XMLs modificados no mês e ano atuais."""
+    """Seleciona os XMLs modificados no mês atual."""
     files: dict[str, Path] = {}
     for path in directory.iterdir():
         if not path.is_file() or path.suffix.lower() != ".xml":
@@ -114,7 +124,7 @@ def current_month_xml(directory: Path, now: datetime) -> dict[str, Path]:
 
 
 def file_sha256(path: Path) -> str:
-    """Calcula o SHA-256 em blocos para não carregar o arquivo inteiro na memória."""
+    """Calcula o SHA-256 de um arquivo."""
     digest = hashlib.sha256()
     with path.open("rb") as file:
         for block in iter(lambda: file.read(1024 * 1024), b""):
@@ -123,9 +133,8 @@ def file_sha256(path: Path) -> str:
 
 
 def files_match(source: Path, target: Path) -> bool:
-    """Confirma que origem e destino têm o mesmo tamanho e o mesmo conteúdo."""
+    """Compara o tamanho e o conteúdo de dois arquivos."""
     try:
-        # O tamanho é uma verificação rápida antes do cálculo de SHA-256.
         if not target.is_file() or source.stat().st_size != target.stat().st_size:
             return False
         return file_sha256(source) == file_sha256(target)
@@ -134,40 +143,30 @@ def files_match(source: Path, target: Path) -> bool:
 
 
 def atomic_copy_verified(source: Path, target: Path) -> None:
-    """Copia, valida e publica o arquivo sem expor uma cópia incompleta.
-
-    A gravação ocorre primeiro em um arquivo oculto com extensão ``.part`` no
-    mesmo diretório do destino. Somente após validar tamanho e SHA-256 esse
-    arquivo substitui o destino definitivo por meio de ``os.replace``.
-    """
+    """Copia e publica um arquivo após validar sua integridade."""
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.parent / f".{target.name}.{uuid.uuid4().hex}.part"
 
-    # Estes valores representam o arquivo que esperamos encontrar ao final.
     expected_size = source.stat().st_size
     expected_digest = file_sha256(source)
     try:
         shutil.copy2(source, temporary)
 
-        # Nunca publica a cópia temporária se ela estiver truncada ou alterada.
         if temporary.stat().st_size != expected_size:
             raise OSError(f"Tamanho divergente após copiar {source} para {target}.")
         if file_sha256(temporary) != expected_digest:
             raise OSError(f"Conteúdo divergente após copiar {source} para {target}.")
 
-        # A substituição só acontece depois de a cópia temporária ser aprovada.
         os.replace(temporary, target)
 
-        # Confere novamente o arquivo já publicado no destino definitivo.
         if target.stat().st_size != expected_size or file_sha256(target) != expected_digest:
             raise OSError(f"Falha na validação final de {target}.")
     finally:
-        # Remove qualquer sobra temporária em caso de sucesso ou erro.
         temporary.unlink(missing_ok=True)
 
 
 def atomic_write_text(target: Path, content: str) -> None:
-    """Grava um texto em arquivo temporário e o publica de forma atômica."""
+    """Grava um texto de forma atômica."""
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.parent / f".{target.name}.{uuid.uuid4().hex}.part"
     try:
@@ -178,7 +177,7 @@ def atomic_write_text(target: Path, content: str) -> None:
 
 
 def send_alert(hotel: str, message: str) -> None:
-    """Tenta enviar um alerta SMTP; ausência de credenciais não interrompe o processo."""
+    """Envia um alerta SMTP quando configurado."""
     user = os.getenv("NFCE_SMTP_USER")
     password = os.getenv("NFCE_SMTP_PASSWORD")
     recipient = os.getenv("NFCE_ALERT_RECIPIENT")
@@ -200,7 +199,7 @@ def send_alert(hotel: str, message: str) -> None:
 
 
 def google_drive_version(path: Path) -> tuple[int, ...]:
-    """Converte o nome da pasta de versão do Google Drive em números comparáveis."""
+    """Extrai a versão instalada do Google Drive."""
     try:
         return tuple(int(part) for part in path.parent.name.split("."))
     except ValueError:
@@ -208,13 +207,12 @@ def google_drive_version(path: Path) -> tuple[int, ...]:
 
 
 def running_on_windows() -> bool:
-    """Informa em tempo de execução se o sincronizador está rodando no Windows."""
+    """Indica se o programa está no Windows."""
     return os.name == "nt"
 
 
 def start_google_drive() -> None:
-    """Inicia a versão mais recente instalada do Google Drive, se necessário."""
-    # Evita abrir uma segunda instância quando o processo já está em execução.
+    """Inicia o Google Drive quando necessário."""
     result = subprocess.run(
         ["tasklist", "/FI", "IMAGENAME eq GoogleDriveFS.exe"],
         capture_output=True,
@@ -238,13 +236,12 @@ def ensure_temporary_directory(
     timeout_seconds: float = GOOGLE_DRIVE_START_TIMEOUT_SECONDS,
     poll_seconds: float = GOOGLE_DRIVE_POLL_SECONDS,
 ) -> None:
-    """Garante a pasta temporária, iniciando o Google Drive no Windows se preciso."""
+    """Disponibiliza a pasta temporária."""
     if directory.is_dir():
         return
     if dry_run:
         raise RuntimeError(f"Pasta temporária indisponível: {directory}")
 
-    # Pastas locais ou subpastas de uma unidade já montada podem ser criadas aqui.
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as error:
@@ -254,7 +251,6 @@ def ensure_temporary_directory(
     if not running_on_windows():
         raise RuntimeError(f"Pasta temporária indisponível: {directory}")
 
-    # Se a unidade não existe no Windows, inicia o Drive e aguarda sua montagem.
     start_google_drive()
     deadline = time.monotonic() + timeout_seconds
     while True:
@@ -274,71 +270,80 @@ def ensure_temporary_directory(
     )
 
 
-def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None) -> int:
-    """Executa uma sincronização completa e devolve zero quando ela termina bem."""
-    now = now or datetime.now()
-
-    # Uma origem indisponível gera aviso; o processo continua com as demais.
-    sources: list[Path] = []
-    for source in settings.sources:
+def available_sources(sources: tuple[Path, ...]) -> list[Path]:
+    """Seleciona as origens disponíveis."""
+    available: list[Path] = []
+    for source in sources:
         try:
-            available = source.is_dir()
+            if source.is_dir():
+                available.append(source)
+            else:
+                LOGGER.warning("Origem indisponível: %s", source)
         except OSError as error:
             LOGGER.warning("Origem indisponível: %s (%s)", source, error)
-            continue
-        if available:
-            sources.append(source)
-        else:
-            LOGGER.warning("Origem indisponível: %s", source)
+    return available
 
-    if not sources:
-        raise RuntimeError("Nenhuma pasta de origem está disponível.")
 
-    ensure_temporary_directory(settings.temporary, dry_run)
-
-    # Consolida os arquivos de todas as origens usando o nome como identificador.
-    settings.destination.mkdir(parents=True, exist_ok=True)
+def collect_source_files(sources: list[Path], now: datetime) -> dict[str, Path]:
+    """Agrupa os XMLs e rejeita nomes duplicados."""
     source_files: dict[str, Path] = {}
     collisions: dict[str, list[Path]] = {}
     for source in sources:
         for name, path in current_month_xml(source, now).items():
-            if name in source_files and source_files[name] != path:
-                collisions.setdefault(name, [source_files[name]]).append(path)
-                continue
-            source_files[name] = path
+            existing = source_files.get(name)
+            if existing is not None and existing != path:
+                collisions.setdefault(name, [existing]).append(path)
+            else:
+                source_files[name] = path
 
     if collisions:
-        # Interromper é mais seguro do que escolher silenciosamente uma das origens.
         details = "; ".join(
             f"{name}: {', '.join(str(path) for path in paths)}"
             for name, paths in sorted(collisions.items())
         )
         raise RuntimeError(f"Colisão de nomes entre origens: {details}")
+    return source_files
 
-    # Arquivos ausentes ou com conteúdo diferente precisam ser copiados novamente.
-    pending_destination = sorted(
-        name for name, source in source_files.items() if not files_match(source, settings.destination / name)
-    )
-    pending_temporary = sorted(
-        name for name, source in source_files.items() if not files_match(source, settings.temporary / name)
-    )
 
-    # Atualiza primeiro o destino principal.
-    for name in pending_destination:
-        source = source_files[name]
-        LOGGER.info("%s: %s -> %s", "[DRY-RUN] Copiaria" if dry_run else "Copiando", source, settings.destination / name)
+def copy_changed_files(
+    source_files: dict[str, Path],
+    destination: Path,
+    dry_run: bool,
+) -> int:
+    """Copia os arquivos ausentes ou divergentes."""
+    changed = 0
+    for name, source in sorted(source_files.items()):
+        target = destination / name
+        if files_match(source, target):
+            continue
+        changed += 1
+        action = "[DRY-RUN] Copiaria" if dry_run else "Copiando"
+        LOGGER.info("%s: %s -> %s", action, source, target)
         if not dry_run:
-            atomic_copy_verified(source, settings.destination / name)
+            atomic_copy_verified(source, target)
+    return changed
 
-    # Depois atualiza a pasta intermediária, como uma pasta do Google Drive.
-    for name in pending_temporary:
-        source = source_files[name]
-        LOGGER.info("%s: %s -> %s", "[DRY-RUN] Copiaria" if dry_run else "Copiando", source, settings.temporary / name)
-        if not dry_run:
-            atomic_copy_verified(source, settings.temporary / name)
+
+def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None) -> int:
+    """Executa a sincronização."""
+    now = now or datetime.now()
+
+    sources = available_sources(settings.sources)
+    if not sources:
+        raise RuntimeError("Nenhuma pasta de origem está disponível.")
+
+    ensure_temporary_directory(settings.temporary, dry_run)
+    if not dry_run:
+        settings.destination.mkdir(parents=True, exist_ok=True)
+    source_files = collect_source_files(sources, now)
+    destination_changes = copy_changed_files(
+        source_files, settings.destination, dry_run
+    )
+    temporary_changes = copy_changed_files(
+        source_files, settings.temporary, dry_run
+    )
 
     if not dry_run:
-        # O heartbeat indica que todas as cópias anteriores terminaram com sucesso.
         settings.heartbeat_destination.mkdir(parents=True, exist_ok=True)
         atomic_write_text(settings.heartbeat_file, now.replace(tzinfo=None).isoformat())
         atomic_copy_verified(
@@ -347,25 +352,26 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
         )
         LOGGER.info("Arquivo de monitoramento atualizado: %s", settings.heartbeat_file)
     LOGGER.info(
-        "Sincronização concluída: "
-        f"{len(pending_destination)} atualizado(s) no destino, "
-        f"{len(pending_temporary)} atualizado(s) no temporário, "
-        f"{len(source_files)} no mês."
+        "Sincronização concluída: %s atualizado(s) no destino, "
+        "%s atualizado(s) no temporário, %s no mês.",
+        destination_changes,
+        temporary_changes,
+        len(source_files),
     )
     return 0
 
 
-def parse_args() -> argparse.Namespace:
-    """Define os argumentos aceitos na linha de comando."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Lê os argumentos da linha de comando."""
     parser = argparse.ArgumentParser(description="Sincroniza XMLs de NFC-e do mês atual.")
     parser.add_argument("--config", type=Path, default=BASE_DIR / "config" / "config.ini")
     parser.add_argument("--log-file", type=Path, default=BASE_DIR / "log" / "nfce_trigger.log")
     parser.add_argument("--dry-run", action="store_true", help="Exibe ações sem alterar arquivos.")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def run(arguments: argparse.Namespace) -> int:
-    """Coordena configuração, sincronização, tratamento de erro e alerta."""
+    """Executa o fluxo principal."""
     started_at = time.monotonic()
     LOGGER.info("Execução iniciada%s.", " em modo de simulação" if arguments.dry_run else "")
     settings = None
@@ -374,7 +380,6 @@ def run(arguments: argparse.Namespace) -> int:
         LOGGER.info("Hotel: %s | Origens configuradas: %s", settings.hotel, len(settings.sources))
         exit_code = sync(settings, arguments.dry_run)
     except Exception as error:
-        # Qualquer falha fica no log e gera uma tentativa de alerta por e-mail.
         LOGGER.exception("Execução encerrada com erro: %s", error)
         send_alert(settings.hotel if settings else "Não informado", str(error))
         exit_code = 1
@@ -383,7 +388,6 @@ def run(arguments: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
-    # Este bloco só é executado quando o arquivo é chamado diretamente.
     arguments = parse_args()
     configure_logging(arguments.log_file)
     raise SystemExit(run(arguments))

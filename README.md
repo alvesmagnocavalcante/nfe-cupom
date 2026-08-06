@@ -12,7 +12,7 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
    ansible-galaxy collection install -r ansible/requirements.yml
    ```
 
-2. No Semaphore, cadastre o inventário com os grupos `nfce_windows` e, somente em homologação, `pdv_windows`. Configure nele as variáveis `nfce_*` exigidas pelo playbook.
+2. No Semaphore, cadastre o inventário com o grupo `nfce_windows`. Configure nele as variáveis `nfce_*` exigidas pelo playbook, usando `ansible/variables.example.yml` como modelo.
 
 3. Armazene a credencial WinRM no Key Store do Semaphore e vincule-a ao inventário. Nunca versione credenciais.
 
@@ -26,6 +26,8 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
 
 Cada execução do playbook garante a instalação do Python, roda o sincronizador pelo WinRM e exibe o resultado no terminal do controlador. O instalador de 64 bits é obtido do site oficial do Python e validado por SHA-256. O playbook também remove a antiga tarefa `NFCeTrigger` do Agendador do Windows, caso exista.
 
+No modo `--check`, o playbook valida as variáveis e informa as alterações de infraestrutura previstas, mas não confirma a versão final do Python nem executa o sincronizador.
+
 A versão do Python e seu SHA-256 são mantidos juntos em `nfce_python_installers`, no playbook. Uma versão não cadastrada é rejeitada antes do download, evitando validar um instalador com o checksum de outra versão.
 
 A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso cria um logon apto a acessar compartilhamentos de rede a partir do Windows central e evita a limitação de salto duplo do NTLM.
@@ -34,9 +36,7 @@ Como a verificação por SHA-256 e a espera pelo Google Drive podem ultrapassar 
 
 Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\log\nfce_trigger.log`. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
 
-Os hosts incluídos em `pdv_windows` são considerados parte do laboratório: o playbook prepara a pasta, o compartilhamento e o XML fictício diretamente nesses PDVs. Em produção, não inclua esse grupo no inventário. Defina também `nfce_prepare_fictitious_data` obrigatoriamente no Semaphore; `true` cria dados adicionais nas origens configuradas no servidor central e `false` desabilita somente essa preparação adicional.
-
-O `ansible/playbook.yml` primeiro prepara a pasta, o XML e o compartilhamento dos hosts presentes no grupo `pdv_windows`; depois instala e executa a sincronização nos hosts do grupo `nfce_windows`. Em produção, omita o grupo `pdv_windows` do inventário para que o Ansible não altere as origens reais.
+As pastas de origem e seus XMLs devem existir antes da execução. O playbook não cria, altera nem compartilha as origens; ele apenas instala o sincronizador no host central, garante os diretórios de destino, heartbeat e logs, e então executa a cópia.
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.
 

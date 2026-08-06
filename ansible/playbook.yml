@@ -1,44 +1,4 @@
 ---
-- name: Preparar pastas compartilhadas dos PDVs
-  hosts: pdv_windows
-  gather_facts: false
-  vars:
-    pdv_nfce_path_resolved: "{{ pdv_nfce_path | default('C:\\PDV\\NFCe') }}"
-    pdv_nfce_share_resolved: "{{ pdv_nfce_share | default('NFCe') }}"
-    pdv_nfce_user_resolved: "{{ pdv_nfce_user | default(ansible_user) }}"
-  tasks:
-    - name: Criar pasta NFC-e no PDV
-      ansible.windows.win_file:
-        path: "{{ pdv_nfce_path_resolved }}"
-        state: directory
-
-    - name: Criar XML fictício no PDV
-      ansible.windows.win_copy:
-        content: |
-          <?xml version="1.0" encoding="UTF-8"?>
-          <nfce>
-            <status>teste</status>
-          </nfce>
-        dest: "{{ pdv_nfce_path_resolved }}\\nfce-001.xml"
-
-    - name: Configurar permissão NTFS no PDV
-      ansible.windows.win_acl:
-        path: "{{ pdv_nfce_path_resolved }}"
-        user: "{{ pdv_nfce_user_resolved }}"
-        rights: Modify
-        type: allow
-        state: present
-        inherit: ContainerInherit,ObjectInherit
-        propagation: None
-
-    - name: Compartilhar pasta NFC-e do PDV
-      ansible.windows.win_share:
-        name: "{{ pdv_nfce_share_resolved }}"
-        description: Compartilhamento NFC-e
-        path: "{{ pdv_nfce_path_resolved }}"
-        state: present
-        full: "{{ pdv_nfce_user_resolved }}"
-
 - name: Instalar e executar NFCe Trigger no Windows
   hosts: nfce_windows
   gather_facts: false
@@ -51,9 +11,9 @@
     nfce_python_installers:
       "3.13.14":
         sha256: c54d9b9bbb8a36e6489363ddd01139707fd781d72f1f9e90c7ec65d0061368e0
-    nfce_python_checksum_resolved: "{{ nfce_python_installers[nfce_python_version_resolved].sha256 }}"
     ansible_winrm_connection_timeout: "{{ nfce_winrm_connection_timeout | default(600) | int }}"
   tasks:
+    # Validação das entradas
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:
         that:
@@ -62,15 +22,24 @@
           - (nfce_destination_directory | default('')) | length > 0
           - (nfce_temporary_directory | default('')) | length > 0
           - (nfce_heartbeat_destination | default('')) | length > 0
-          - nfce_prepare_fictitious_data is defined
           - nfce_python_version_resolved in nfce_python_installers
         fail_msg: >-
           Variáveis NFC-e ausentes. Cadastre nfce_sources, nfce_hotel,
           nfce_destination_directory, nfce_temporary_directory e
           nfce_heartbeat_destination no inventário ou ambiente do Semaphore,
-          defina nfce_prepare_fictitious_data explicitamente como true ou false
           e use uma versão de Python presente em nfce_python_installers.
 
+    - name: Validar origens configuradas
+      ansible.builtin.assert:
+        that:
+          - (item.name | default('')) | length > 0
+          - (item.path | default('')) | length > 0
+        fail_msg: Cada item de nfce_sources deve possuir name e path preenchidos.
+      loop: "{{ nfce_sources }}"
+      loop_control:
+        label: "{{ item.name | default('origem sem nome') }}"
+
+    # Instalação do Python
     - name: Verificar instalação do Python
       ansible.windows.win_stat:
         path: "{{ nfce_python_resolved }}"
@@ -98,7 +67,7 @@
       ansible.windows.win_get_url:
         url: "https://www.python.org/ftp/python/{{ nfce_python_version_resolved }}/python-{{ nfce_python_version_resolved }}-amd64.exe"
         dest: "{{ nfce_python_installer }}"
-        checksum: "{{ nfce_python_checksum_resolved }}"
+        checksum: "{{ nfce_python_installers[nfce_python_version_resolved].sha256 }}"
         checksum_algorithm: sha256
       when: nfce_python_needs_install
 
@@ -111,7 +80,6 @@
           - PrependPath=1
           - Include_test=0
           - "TargetDir={{ nfce_python_dir_resolved }}"
-        creates_path: "{{ nfce_python_resolved }}"
         state: present
       when: nfce_python_needs_install
 
@@ -128,6 +96,7 @@
       register: nfce_python_installed_version
       changed_when: false
       failed_when: false
+      when: not ansible_check_mode
 
     - name: Validar executável e versão do Python
       ansible.builtin.assert:
@@ -137,45 +106,16 @@
         fail_msg: >-
           Python {{ nfce_python_version_resolved }} não encontrado em
           {{ nfce_python_resolved }} após a instalação.
+      when: not ansible_check_mode
 
-    - name: Criar diretórios de origem para dados fictícios
-      ansible.windows.win_file:
-        path: "{{ item }}"
-        state: directory
-      loop: "{{ nfce_sources | map(attribute='path') | list }}"
-      when: nfce_prepare_fictitious_data | bool
-
-    - name: Criar XMLs fictícios nas origens
-      ansible.windows.win_copy:
-        content: '<nfce id="{{ item.name }}"><total>10.00</total></nfce>'
-        dest: "{{ item.path }}\\nfce-{{ item.name }}.xml"
-      loop: "{{ nfce_sources }}"
-      loop_control:
-        label: "{{ item.name }}"
-      when: nfce_prepare_fictitious_data | bool
-
-    - name: Atualizar data dos XMLs fictícios
-      ansible.windows.win_file:
-        path: "{{ item.path }}\\nfce-{{ item.name }}.xml"
-        state: touch
-      loop: "{{ nfce_sources }}"
-      loop_control:
-        label: "{{ item.name }}"
-      when: nfce_prepare_fictitious_data | bool
-
-    - name: Criar diretórios de saída da sincronização
+    # Implantação da aplicação
+    - name: Criar diretórios necessários
       ansible.windows.win_file:
         path: "{{ item }}"
         state: directory
       loop:
         - "{{ nfce_destination_directory }}"
         - "{{ nfce_heartbeat_destination }}"
-
-    - name: Criar diretórios da aplicação
-      ansible.windows.win_file:
-        path: "{{ item }}"
-        state: directory
-      loop:
         - "{{ nfce_install_dir_resolved }}"
         - "{{ nfce_install_dir_resolved }}\\config"
         - "{{ nfce_install_dir_resolved }}\\log"
@@ -201,6 +141,7 @@
         start_mode: manual
         state: started
 
+    # Execução do sincronizador
     - name: Executar sincronizador pelo Ansible
       ansible.windows.win_command:
         argv:
@@ -220,7 +161,9 @@
         ansible_become_password: "{{ ansible_password }}"
       register: nfce_sync
       changed_when: true
+      when: not ansible_check_mode
 
     - name: Exibir resultado da sincronização
       ansible.builtin.debug:
         var: nfce_sync.stdout_lines
+      when: not ansible_check_mode

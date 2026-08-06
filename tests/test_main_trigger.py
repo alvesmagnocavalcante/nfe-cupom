@@ -67,6 +67,17 @@ class SyncTests(unittest.TestCase):
 
         self.assertFalse((self.destination / "nfe.xml").exists())
 
+    def test_dry_run_does_not_create_destination_or_files(self):
+        self.create_current_xml(self.source)
+        self.destination.rmdir()
+
+        result = main_trigger.sync(self.settings(), dry_run=True, now=self.now)
+
+        self.assertEqual(result, 0)
+        self.assertFalse(self.destination.exists())
+        self.assertFalse((self.temporary / "nfe.xml").exists())
+        self.assertFalse(self.settings().heartbeat_file.exists())
+
     def test_atomic_copy_validates_content_and_removes_partial_file(self):
         source = self.create_current_xml(self.source, content="conteúdo válido")
         target = self.destination / source.name
@@ -134,6 +145,48 @@ class AlertTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         alert.assert_called_once()
+
+
+class ConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.config = self.root / "config.ini"
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_rejects_empty_source_values(self):
+        self.config.write_text(
+            "[sources]\npdv =    \n\n[paths]\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Nenhuma origem"):
+            main_trigger.load_config(self.config)
+
+    def test_reports_missing_paths_section_as_validation_error(self):
+        self.config.write_text("[sources]\npdv = C:\\\\NFCe\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "Configurações ausentes em \\[paths\\]"):
+            main_trigger.load_config(self.config)
+
+    def test_rejects_empty_required_path(self):
+        self.config.write_text(
+            """[sources]
+pdv = C:\\NFCe
+
+[paths]
+destination_directory =
+temporary_directory = C:\\Temp
+destino = C:\\Heartbeat
+ultimaExecucaoFile = C:\\estado.txt
+""",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "destination_directory"):
+            main_trigger.load_config(self.config)
 
 
 if __name__ == "__main__":
