@@ -1,0 +1,19 @@
+---
+# Exemplo de ambiente do Semaphore para o Hotel Charme.
+nfce_instance: charme
+nfce_hotel: Charme
+
+nfce_sources:
+  - name: caps
+    path: '\\10.197.1.10\charme.servidor-caps.nfce'
+  - name: charme-11
+    path: '\\10.197.0.11\charme.charme-11.nfce'
+  - name: charme-12
+    path: '\\10.197.0.20\charme.charme-12.nfce'
+
+nfce_destination_directory: 'C:\NFCe\Charme\Cupons'
+nfce_temporary_directory: 'H:\Meu Drive\Robo_importsat_cmflex\Charme'
+nfce_heartbeat_destination: 'H:\Meu Drive\Robo_importsat_cmflex\Monitoramento\Charme'
+
+# Opcional. Sem esta variável, será usado C:\NFCe\trigger\charme.
+# nfce_install_dir: 'C:\NFCe\trigger\Charme'

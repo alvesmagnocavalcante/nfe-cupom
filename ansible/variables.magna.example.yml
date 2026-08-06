@@ -1,0 +1,21 @@
+---
+# Exemplo de ambiente do Semaphore para o Hotel Magna.
+nfce_instance: magna
+nfce_hotel: Magna
+
+nfce_sources:
+  - name: simphony_response
+    path: 'C:\Micros\Simphony\WebServer\fiscal\nfce\response'
+  - name: pdv_rest
+    path: '\\10.197.0.102\magna.pdv-rest.nfce'
+  - name: recep_06
+    path: '\\10.197.1.89\magna.magna-recep-06.nfce'
+  - name: contab_02
+    path: '\\10.197.0.91\magna.magna-contab-02.nfce'
+
+nfce_destination_directory: 'C:\NFCe\Magna\Cupons'
+nfce_temporary_directory: 'H:\Meu Drive\Robo_importsat_cmflex\Magna'
+nfce_heartbeat_destination: 'H:\Meu Drive\Robo_importsat_cmflex\Monitoramento\Magna'
+
+# Opcional. Sem esta variável, será usado C:\NFCe\trigger\magna.
+# nfce_install_dir: 'C:\NFCe\trigger\Magna'

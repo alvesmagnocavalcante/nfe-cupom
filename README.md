@@ -12,7 +12,7 @@ O controlador Ansible deve ser Linux, WSL ou um contêiner; o Windows gerenciado
    ansible-galaxy collection install -r ansible/requirements.yml
    ```
 
-2. No Semaphore, cadastre o inventário com o grupo `nfce_windows`. Configure nele as variáveis `nfce_*` exigidas pelo playbook, usando `ansible/variables.example.yml` como modelo.
+2. No Semaphore, cadastre o inventário com o grupo `nfce_windows`. Configure nele as variáveis `nfce_*` exigidas pelo playbook, usando `ansible/variables.example.yml` como modelo. Cada hotel deve possuir um ambiente/template próprio e um `nfce_instance` único.
 
 3. Armazene a credencial WinRM no Key Store do Semaphore e vincule-a ao inventário. Nunca versione credenciais.
 
@@ -34,7 +34,24 @@ A execução do sincronizador usa `runas` com a mesma credencial do WinRM. Isso 
 
 Como a verificação por SHA-256 e a espera pelo Google Drive podem ultrapassar o limite padrão do WinRM, o playbook usa 600 segundos para a conexão. Esse valor pode ser alterado no Semaphore pela variável `nfce_winrm_connection_timeout`.
 
-Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\log\nfce_trigger.log`. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
+Cada execução aparece no histórico do Semaphore e também é gravada no Windows central em `C:\NFCe\trigger\<nfce_instance>\log\nfce_trigger.log`, salvo quando `nfce_install_dir` é definido explicitamente. O arquivo registra início, cópias, avisos, resumo, duração e erros. Ao atingir 5 MB, ele é rotacionado automaticamente, mantendo até 10 arquivos anteriores. A execução força UTF-8 para preservar os acentos na saída do Semaphore.
+
+### Vários hotéis no mesmo Windows
+
+O `nfce_instance` identifica tecnicamente cada hotel e aceita apenas letras,
+números, hífen e sublinhado. Quando `nfce_install_dir` não é informado, ele
+também separa automaticamente as instalações:
+
+```text
+C:\NFCe\trigger\charme
+C:\NFCe\trigger\magna
+```
+
+Configuração, log e arquivo de monitoramento ficam dentro da instalação de cada
+hotel. O heartbeat recebe o identificador no nome, por exemplo
+`ultima_execucao_charme.txt`, evitando colisão mesmo quando dois hotéis usam a
+mesma `nfce_heartbeat_destination`. Os diretórios de destino e temporário devem
+ser definidos separadamente para cada hotel no Semaphore.
 
 As pastas de origem e seus XMLs devem existir antes da execução. O playbook não cria, altera nem compartilha as origens; ele apenas instala o sincronizador no host central, garante os diretórios de destino, heartbeat e logs, e então executa a cópia.
 
@@ -48,7 +65,12 @@ Quando a pasta temporária não está disponível, o sincronizador tenta criá-l
 
 ### Semaphore
 
-O arquivo `ansible/inventory.yml` é local e não é enviado ao Git. Cadastre as variáveis `nfce_*` no inventário estático ou no ambiente associado ao template.
+O arquivo `ansible/inventory.yml` é local e não é enviado ao Git. Cadastre as variáveis `nfce_*` no inventário estático ou no ambiente associado ao template. Para vários hotéis, crie um ambiente/template por hotel, reutilizando o mesmo playbook e atribuindo um `nfce_instance` diferente a cada um.
+
+Os arquivos `ansible/variables.charme.example.yml` e
+`ansible/variables.magna.example.yml` mostram os dois ambientes separados. Não
+combine os dois conjuntos no mesmo ambiente do Semaphore, pois as variáveis de
+um hotel substituiriam as do outro.
 
 ## Alertas por e-mail
 

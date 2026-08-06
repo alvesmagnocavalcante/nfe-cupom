@@ -6,6 +6,10 @@
 # vincule-a ao inventário/template de execução.
 
 # Variáveis obrigatórias
+# Identificador técnico único da instalação. Use apenas letras, números, hífen
+# ou sublinhado. Por padrão, a instalação será feita em
+# C:\NFCe\trigger\<nfce_instance>.
+nfce_instance: hotel_exemplo
 nfce_hotel: Hotel Exemplo
 
 # Cada origem precisa ter um nome único e um caminho existente. A conta WinRM
@@ -23,7 +27,7 @@ nfce_heartbeat_destination: 'C:\NFCe\Monitoramento'
 
 # Variáveis opcionais. Remova os comentários somente se precisar alterar os
 # valores padrão definidos no playbook.
-# nfce_install_dir: 'C:\NFCe\trigger'
+# nfce_install_dir: 'D:\Aplicacoes\NFCe\hotel_exemplo'
 # nfce_python_dir: 'C:\Python313'
 # nfce_python_version: '3.13.14'
 # nfce_winrm_connection_timeout: 600

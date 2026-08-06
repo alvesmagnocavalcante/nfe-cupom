@@ -3,7 +3,12 @@
   hosts: nfce_windows
   gather_facts: false
   vars:
-    nfce_install_dir_resolved: "{{ nfce_install_dir | default('C:\\NFCe\\trigger') }}"
+    nfce_instance_resolved: "{{ nfce_instance | lower }}"
+    nfce_install_dir_resolved: >-
+      {{
+        nfce_install_dir
+        | default('C:\\NFCe\\trigger\\' ~ nfce_instance_resolved, true)
+      }}
     nfce_python_dir_resolved: "{{ nfce_python_dir | default('C:\\Python313') }}"
     nfce_python_resolved: "{{ nfce_python_dir_resolved }}\\python.exe"
     nfce_python_version_resolved: "{{ nfce_python_version | default('3.13.14') }}"
@@ -17,6 +22,8 @@
     - name: Validar variáveis obrigatórias
       ansible.builtin.assert:
         that:
+          - (nfce_instance | default('')) | length > 0
+          - (nfce_instance | default('')) is match('^[a-zA-Z0-9_-]+$')
           - (nfce_sources | default([])) | length > 0
           - (nfce_hotel | default('')) | length > 0
           - (nfce_destination_directory | default('')) | length > 0
@@ -24,7 +31,8 @@
           - (nfce_heartbeat_destination | default('')) | length > 0
           - nfce_python_version_resolved in nfce_python_installers
         fail_msg: >-
-          Variáveis NFC-e ausentes. Cadastre nfce_sources, nfce_hotel,
+          Variáveis NFC-e ausentes ou inválidas. Cadastre nfce_instance usando
+          apenas letras, números, hífen ou sublinhado; cadastre nfce_sources, nfce_hotel,
           nfce_destination_directory, nfce_temporary_directory e
           nfce_heartbeat_destination no inventário ou ambiente do Semaphore,
           e use uma versão de Python presente em nfce_python_installers.
