@@ -130,8 +130,13 @@
 
     - name: Instalar sincronizador
       ansible.windows.win_copy:
-        src: ../main_trigger.py
-        dest: "{{ nfce_install_dir_resolved }}\\main_trigger.py"
+        src: ../main.py
+        dest: "{{ nfce_install_dir_resolved }}\\main.py"
+
+    - name: Remover ponto de entrada antigo
+      ansible.windows.win_file:
+        path: "{{ nfce_install_dir_resolved }}\\main_trigger.py"
+        state: absent
 
     - name: Instalar módulos do sincronizador
       ansible.windows.win_copy:
@@ -161,7 +166,7 @@
           - "{{ nfce_python_resolved }}"
           - -X
           - utf8
-          - "{{ nfce_install_dir_resolved }}\\main_trigger.py"
+          - "{{ nfce_install_dir_resolved }}\\main.py"
           - --config
           - "{{ nfce_install_dir_resolved }}\\config\\config.ini"
           - --log-file

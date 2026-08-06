@@ -53,7 +53,7 @@ hotel. O heartbeat recebe o identificador no nome, por exemplo
 mesma `nfce_heartbeat_destination`. Os diretórios de destino e temporário devem
 ser definidos separadamente para cada hotel no Semaphore.
 
-As pastas de origem e seus XMLs devem existir antes da execução. O playbook não cria, altera nem compartilha as origens; ele instala o ponto de entrada `main_trigger.py` e os módulos do pacote `nfce_trigger` no host central, garante os diretórios de destino, heartbeat e logs, e então executa a cópia.
+As pastas de origem e seus XMLs devem existir antes da execução. O playbook não cria, altera nem compartilha as origens; ele instala o ponto de entrada `main.py` e os módulos do pacote `nfce_trigger` no host central, garante os diretórios de destino, heartbeat e logs, e então executa a cópia.
 
 Para recorrência, programe a chamada de `ansible-playbook` no controlador WSL ou utilize uma plataforma como AWX. O Windows não agenda nem inicia o sincronizador por conta própria.
 
