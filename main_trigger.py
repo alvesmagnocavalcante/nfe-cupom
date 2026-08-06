@@ -1,4 +1,4 @@
-"""Sincroniza XMLs de NFC-e com validação, logs e alertas."""
+# Sincronizador de XMLs de NFC-e com validação, logs e alertas.
 
 import argparse
 import configparser
@@ -18,15 +18,38 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
+# Configuração geral
+
 BASE_DIR = Path(__file__).resolve().parent
 LOGGER = logging.getLogger("nfce_trigger")
 
 GOOGLE_DRIVE_START_TIMEOUT_SECONDS = 60
 GOOGLE_DRIVE_POLL_SECONDS = 2
+FILE_READ_BLOCK_SIZE = 1024 * 1024
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 10
 
+REQUIRED_PATH_SETTINGS = {
+    "destination_directory",
+    "temporary_directory",
+    "destino",
+    "ultimaexecucaofile",
+}
+
+
+@dataclass(frozen=True)
+class Settings:
+    sources: tuple[Path, ...]
+    destination: Path
+    temporary: Path
+    heartbeat_destination: Path
+    heartbeat_file: Path
+    hotel: str
+
+
+# Logs
 
 def configure_logging(log_file: Path) -> None:
-    """Configura os logs no terminal e em arquivo."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(message)s",
@@ -38,8 +61,8 @@ def configure_logging(log_file: Path) -> None:
 
     file_handler = RotatingFileHandler(
         log_file,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=10,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
@@ -51,55 +74,50 @@ def configure_logging(log_file: Path) -> None:
     LOGGER.addHandler(file_handler)
 
 
-@dataclass(frozen=True)
-class Settings:
-    """Armazena as configurações da sincronização."""
+# Leitura da configuração
 
-    sources: tuple[Path, ...]
-    destination: Path
-    temporary: Path
-    heartbeat_destination: Path
-    heartbeat_file: Path
-    hotel: str
+def clean_config_value(value: str) -> str:
+    return value.strip().strip("\"'")
+
+
+def load_sources(config: configparser.ConfigParser) -> tuple[Path, ...]:
+    if not config.has_section("sources"):
+        return ()
+
+    sources: list[Path] = []
+    for _, raw_value in config.items("sources"):
+        value = clean_config_value(raw_value)
+        if value:
+            sources.append(Path(value))
+    return tuple(sources)
+
+
+def load_paths(config: configparser.ConfigParser) -> dict[str, str]:
+    if not config.has_section("paths"):
+        return {}
+
+    return {
+        key.lower(): clean_config_value(value)
+        for key, value in config.items("paths")
+    }
 
 
 def load_config(path: Path) -> Settings:
-    """Carrega e valida a configuração INI."""
     if not path.is_file():
         raise FileNotFoundError(f"Configuração não encontrada: {path}")
 
     config = configparser.ConfigParser()
     config.read(path, encoding="utf-8-sig")
-    source_values = (
-        (value.strip().strip("\"'") for _, value in config.items("sources"))
-        if config.has_section("sources")
-        else ()
-    )
-    sources = tuple(
-        Path(value)
-        for value in source_values
-        if value
-    )
+
+    sources = load_sources(config)
     if not sources:
         raise ValueError("Nenhuma origem configurada em [sources].")
 
-    required = {
-        "destination_directory",
-        "temporary_directory",
-        "destino",
-        "ultimaexecucaofile",
-    }
-    paths = (
-        {
-            key.lower(): value.strip().strip("\"'")
-            for key, value in config.items("paths")
-        }
-        if config.has_section("paths")
-        else {}
-    )
-    missing = {key for key in required if not paths.get(key)}
+    paths = load_paths(config)
+    missing = {key for key in REQUIRED_PATH_SETTINGS if not paths.get(key)}
     if missing:
-        raise ValueError(f"Configurações ausentes em [paths]: {', '.join(sorted(missing))}")
+        missing_names = ", ".join(sorted(missing))
+        raise ValueError(f"Configurações ausentes em [paths]: {missing_names}")
 
     return Settings(
         sources=sources,
@@ -111,29 +129,17 @@ def load_config(path: Path) -> Settings:
     )
 
 
-def current_month_xml(directory: Path, now: datetime) -> dict[str, Path]:
-    """Seleciona os XMLs modificados no mês atual."""
-    files: dict[str, Path] = {}
-    for path in directory.iterdir():
-        if not path.is_file() or path.suffix.lower() != ".xml":
-            continue
-        modified = datetime.fromtimestamp(path.stat().st_mtime)
-        if (modified.year, modified.month) == (now.year, now.month):
-            files.setdefault(path.name, path)
-    return files
-
+# Operações com arquivos
 
 def file_sha256(path: Path) -> str:
-    """Calcula o SHA-256 de um arquivo."""
     digest = hashlib.sha256()
     with path.open("rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
+        for block in iter(lambda: file.read(FILE_READ_BLOCK_SIZE), b""):
             digest.update(block)
     return digest.hexdigest()
 
 
 def files_match(source: Path, target: Path) -> bool:
-    """Compara o tamanho e o conteúdo de dois arquivos."""
     try:
         if not target.is_file() or source.stat().st_size != target.stat().st_size:
             return False
@@ -143,12 +149,11 @@ def files_match(source: Path, target: Path) -> bool:
 
 
 def atomic_copy_verified(source: Path, target: Path) -> None:
-    """Copia e publica um arquivo após validar sua integridade."""
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.parent / f".{target.name}.{uuid.uuid4().hex}.part"
-
     expected_size = source.stat().st_size
     expected_digest = file_sha256(source)
+
     try:
         shutil.copy2(source, temporary)
 
@@ -159,16 +164,18 @@ def atomic_copy_verified(source: Path, target: Path) -> None:
 
         os.replace(temporary, target)
 
-        if target.stat().st_size != expected_size or file_sha256(target) != expected_digest:
+        if target.stat().st_size != expected_size:
+            raise OSError(f"Falha na validação final de {target}.")
+        if file_sha256(target) != expected_digest:
             raise OSError(f"Falha na validação final de {target}.")
     finally:
         temporary.unlink(missing_ok=True)
 
 
 def atomic_write_text(target: Path, content: str) -> None:
-    """Grava um texto de forma atômica."""
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.parent / f".{target.name}.{uuid.uuid4().hex}.part"
+
     try:
         temporary.write_text(content, encoding="utf-8")
         os.replace(temporary, target)
@@ -176,43 +183,20 @@ def atomic_write_text(target: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def send_alert(hotel: str, message: str) -> None:
-    """Envia um alerta SMTP quando configurado."""
-    user = os.getenv("NFCE_SMTP_USER")
-    password = os.getenv("NFCE_SMTP_PASSWORD")
-    recipient = os.getenv("NFCE_ALERT_RECIPIENT")
-    if not all((user, password, recipient)):
-        LOGGER.warning("Alerta não enviado; SMTP não configurado: %s", message)
-        return
+# Google Drive e diretório temporário
 
-    email = MIMEText(f"Problema no NFCeTrigger do hotel {hotel}: {message}", _charset="utf-8")
-    email["From"], email["To"] = user, recipient
-    email["Subject"] = f"Problema no NFCeTrigger do Hotel {hotel}"
-    try:
-        port = int(os.getenv("NFCE_SMTP_PORT", "587"))
-        with smtplib.SMTP(os.getenv("NFCE_SMTP_HOST", "smtp.gmail.com"), port, timeout=15) as server:
-            server.starttls()
-            server.login(user, password)
-            server.send_message(email)
-    except (OSError, ValueError, smtplib.SMTPException) as error:
-        LOGGER.error("Falha ao enviar alerta: %s", error)
+def running_on_windows() -> bool:
+    return os.name == "nt"
 
 
 def google_drive_version(path: Path) -> tuple[int, ...]:
-    """Extrai a versão instalada do Google Drive."""
     try:
         return tuple(int(part) for part in path.parent.name.split("."))
     except ValueError:
         return ()
 
 
-def running_on_windows() -> bool:
-    """Indica se o programa está no Windows."""
-    return os.name == "nt"
-
-
 def start_google_drive() -> None:
-    """Inicia o Google Drive quando necessário."""
     result = subprocess.run(
         ["tasklist", "/FI", "IMAGENAME eq GoogleDriveFS.exe"],
         capture_output=True,
@@ -220,11 +204,16 @@ def start_google_drive() -> None:
         check=False,
     )
     if "GoogleDriveFS.exe" in result.stdout:
-        LOGGER.info("Google Drive já está em execução; aguardando a unidade ficar disponível.")
+        LOGGER.info(
+            "Google Drive já está em execução; aguardando a unidade ficar disponível."
+        )
         return
-    candidates = list(Path(r"C:\Program Files\Google\Drive File Stream").glob("*/GoogleDriveFS.exe"))
+
+    installation_dir = Path(r"C:\Program Files\Google\Drive File Stream")
+    candidates = list(installation_dir.glob("*/GoogleDriveFS.exe"))
     if not candidates:
         raise FileNotFoundError("Executável do Google Drive não encontrado.")
+
     executable = max(candidates, key=google_drive_version)
     subprocess.Popen([str(executable)])
     LOGGER.info("Google Drive iniciado: %s", executable)
@@ -236,7 +225,6 @@ def ensure_temporary_directory(
     timeout_seconds: float = GOOGLE_DRIVE_START_TIMEOUT_SECONDS,
     poll_seconds: float = GOOGLE_DRIVE_POLL_SECONDS,
 ) -> None:
-    """Disponibiliza a pasta temporária."""
     if directory.is_dir():
         return
     if dry_run:
@@ -245,7 +233,10 @@ def ensure_temporary_directory(
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as error:
-        LOGGER.warning("Não foi possível criar a pasta temporária %s: %s", directory, error)
+        LOGGER.warning(
+            "Não foi possível criar a pasta temporária %s: %s", directory, error
+        )
+
     if directory.is_dir():
         return
     if not running_on_windows():
@@ -253,26 +244,47 @@ def ensure_temporary_directory(
 
     start_google_drive()
     deadline = time.monotonic() + timeout_seconds
+
     while True:
         try:
             directory.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+
         if directory.is_dir():
             LOGGER.info("Pasta temporária disponível: %s", directory)
             return
+
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(poll_seconds, remaining))
+
     raise TimeoutError(
-        f"Google Drive não disponibilizou a pasta temporária em {timeout_seconds:.0f} segundo(s): {directory}"
+        "Google Drive não disponibilizou a pasta temporária em "
+        f"{timeout_seconds:.0f} segundo(s): {directory}"
     )
 
 
+# Coleta e sincronização
+
+def current_month_xml(directory: Path, now: datetime) -> dict[str, Path]:
+    files: dict[str, Path] = {}
+
+    for path in directory.iterdir():
+        if not path.is_file() or path.suffix.lower() != ".xml":
+            continue
+
+        modified = datetime.fromtimestamp(path.stat().st_mtime)
+        if (modified.year, modified.month) == (now.year, now.month):
+            files.setdefault(path.name, path)
+
+    return files
+
+
 def available_sources(sources: tuple[Path, ...]) -> list[Path]:
-    """Seleciona as origens disponíveis."""
     available: list[Path] = []
+
     for source in sources:
         try:
             if source.is_dir():
@@ -281,13 +293,14 @@ def available_sources(sources: tuple[Path, ...]) -> list[Path]:
                 LOGGER.warning("Origem indisponível: %s", source)
         except OSError as error:
             LOGGER.warning("Origem indisponível: %s (%s)", source, error)
+
     return available
 
 
 def collect_source_files(sources: list[Path], now: datetime) -> dict[str, Path]:
-    """Agrupa os XMLs e rejeita nomes duplicados."""
     source_files: dict[str, Path] = {}
     collisions: dict[str, list[Path]] = {}
+
     for source in sources:
         for name, path in current_month_xml(source, now).items():
             existing = source_files.get(name)
@@ -302,6 +315,7 @@ def collect_source_files(sources: list[Path], now: datetime) -> dict[str, Path]:
             for name, paths in sorted(collisions.items())
         )
         raise RuntimeError(f"Colisão de nomes entre origens: {details}")
+
     return source_files
 
 
@@ -310,47 +324,58 @@ def copy_changed_files(
     destination: Path,
     dry_run: bool,
 ) -> int:
-    """Copia os arquivos ausentes ou divergentes."""
     changed = 0
+
     for name, source in sorted(source_files.items()):
         target = destination / name
         if files_match(source, target):
             continue
+
         changed += 1
         action = "[DRY-RUN] Copiaria" if dry_run else "Copiando"
         LOGGER.info("%s: %s -> %s", action, source, target)
         if not dry_run:
             atomic_copy_verified(source, target)
+
     return changed
 
 
-def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None) -> int:
-    """Executa a sincronização."""
-    now = now or datetime.now()
+def update_heartbeat(settings: Settings, now: datetime) -> None:
+    settings.heartbeat_destination.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(settings.heartbeat_file, now.replace(tzinfo=None).isoformat())
+    atomic_copy_verified(
+        settings.heartbeat_file,
+        settings.heartbeat_destination / settings.heartbeat_file.name,
+    )
+    LOGGER.info("Arquivo de monitoramento atualizado: %s", settings.heartbeat_file)
 
+
+def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None) -> int:
+    now = now or datetime.now()
     sources = available_sources(settings.sources)
+
     if not sources:
         raise RuntimeError("Nenhuma pasta de origem está disponível.")
 
     ensure_temporary_directory(settings.temporary, dry_run)
     if not dry_run:
         settings.destination.mkdir(parents=True, exist_ok=True)
+
     source_files = collect_source_files(sources, now)
     destination_changes = copy_changed_files(
-        source_files, settings.destination, dry_run
+        source_files,
+        settings.destination,
+        dry_run,
     )
     temporary_changes = copy_changed_files(
-        source_files, settings.temporary, dry_run
+        source_files,
+        settings.temporary,
+        dry_run,
     )
 
     if not dry_run:
-        settings.heartbeat_destination.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(settings.heartbeat_file, now.replace(tzinfo=None).isoformat())
-        atomic_copy_verified(
-            settings.heartbeat_file,
-            settings.heartbeat_destination / settings.heartbeat_file.name,
-        )
-        LOGGER.info("Arquivo de monitoramento atualizado: %s", settings.heartbeat_file)
+        update_heartbeat(settings, now)
+
     LOGGER.info(
         "Sincronização concluída: %s atualizado(s) no destino, "
         "%s atualizado(s) no temporário, %s no mês.",
@@ -361,33 +386,93 @@ def sync(settings: Settings, dry_run: bool = False, now: datetime | None = None)
     return 0
 
 
+# Alertas
+
+def send_alert(hotel: str, message: str) -> None:
+    user = os.getenv("NFCE_SMTP_USER")
+    password = os.getenv("NFCE_SMTP_PASSWORD")
+    recipient = os.getenv("NFCE_ALERT_RECIPIENT")
+
+    if not all((user, password, recipient)):
+        LOGGER.warning("Alerta não enviado; SMTP não configurado: %s", message)
+        return
+
+    email = MIMEText(
+        f"Problema no NFCeTrigger do hotel {hotel}: {message}",
+        _charset="utf-8",
+    )
+    email["From"], email["To"] = user, recipient
+    email["Subject"] = f"Problema no NFCeTrigger do Hotel {hotel}"
+
+    try:
+        port = int(os.getenv("NFCE_SMTP_PORT", "587"))
+        host = os.getenv("NFCE_SMTP_HOST", "smtp.gmail.com")
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.starttls()
+            server.login(user, password)
+            server.send_message(email)
+    except (OSError, ValueError, smtplib.SMTPException) as error:
+        LOGGER.error("Falha ao enviar alerta: %s", error)
+
+
+# Linha de comando e execução
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Lê os argumentos da linha de comando."""
-    parser = argparse.ArgumentParser(description="Sincroniza XMLs de NFC-e do mês atual.")
-    parser.add_argument("--config", type=Path, default=BASE_DIR / "config" / "config.ini")
-    parser.add_argument("--log-file", type=Path, default=BASE_DIR / "log" / "nfce_trigger.log")
-    parser.add_argument("--dry-run", action="store_true", help="Exibe ações sem alterar arquivos.")
+    parser = argparse.ArgumentParser(
+        description="Sincroniza XMLs de NFC-e do mês atual."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=BASE_DIR / "config" / "config.ini",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=BASE_DIR / "log" / "nfce_trigger.log",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Exibe ações sem alterar arquivos.",
+    )
     return parser.parse_args(argv)
 
 
 def run(arguments: argparse.Namespace) -> int:
-    """Executa o fluxo principal."""
     started_at = time.monotonic()
-    LOGGER.info("Execução iniciada%s.", " em modo de simulação" if arguments.dry_run else "")
+    mode = " em modo de simulação" if arguments.dry_run else ""
+    LOGGER.info("Execução iniciada%s.", mode)
+
     settings = None
     try:
         settings = load_config(arguments.config)
-        LOGGER.info("Hotel: %s | Origens configuradas: %s", settings.hotel, len(settings.sources))
+        LOGGER.info(
+            "Hotel: %s | Origens configuradas: %s",
+            settings.hotel,
+            len(settings.sources),
+        )
         exit_code = sync(settings, arguments.dry_run)
     except Exception as error:
         LOGGER.exception("Execução encerrada com erro: %s", error)
-        send_alert(settings.hotel if settings else "Não informado", str(error))
+        hotel = settings.hotel if settings else "Não informado"
+        send_alert(hotel, str(error))
         exit_code = 1
-    LOGGER.info("Execução finalizada com código %s em %.2f segundo(s).", exit_code, time.monotonic() - started_at)
+
+    duration = time.monotonic() - started_at
+    LOGGER.info(
+        "Execução finalizada com código %s em %.2f segundo(s).",
+        exit_code,
+        duration,
+    )
     return exit_code
 
 
-if __name__ == "__main__":
-    arguments = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    arguments = parse_args(argv)
     configure_logging(arguments.log_file)
-    raise SystemExit(run(arguments))
+    return run(arguments)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
