@@ -138,10 +138,10 @@
         src: templates/config.ini.j2
         dest: "{{ nfce_install_dir_resolved }}\\config\\config.ini"
 
-    - name: Remover tarefa agendada legada
-      community.windows.win_scheduled_task:
-        name: NFCeTrigger
-        state: absent
+    # - name: Remover tarefa agendada legada
+    #   community.windows.win_scheduled_task:
+    #     name: NFCeTrigger
+    #     state: absent
 
     - name: Garantir serviço necessário para execução com runas
       ansible.windows.win_service:
